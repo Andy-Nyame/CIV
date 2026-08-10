@@ -1,0 +1,386 @@
+generator client {
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  moduleFormat    = "esm"
+  previewFeatures = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum WorkspaceType {
+  INDIVIDUAL
+  BUSINESS
+  ORGANIZATION
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+  REMOVED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+enum DocumentType {
+  INVOICE
+  RECEIPT
+  QUOTATION
+  TAX_INVOICE
+}
+
+enum DocumentStatus {
+  DRAFT
+  ISSUED
+  VOIDED
+}
+
+enum RateType {
+  PERCENTAGE
+  FIXED
+}
+
+enum RateScope {
+  CUSTOM
+  STATUTORY
+}
+
+enum SubscriptionStatus {
+  BETA
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+enum FileType {
+  ORIGINAL_PDF
+  CUSTOMER_PDF
+  LOGO
+  SIGNATURE
+  STAMP
+  OTHER
+}
+
+model User {
+  id               String       @id @default(uuid()) @db.Uuid
+  name             String?      @db.VarChar(200)
+  email            String?      @unique @db.VarChar(320)
+  emailVerified    DateTime?    @db.Timestamptz(3)
+  image            String?      @db.Text
+  createdAt        DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime     @updatedAt @db.Timestamptz(3)
+  memberships      Membership[]
+  sentInvitations  Invitation[] @relation("InvitationInviter")
+  createdDocuments Document[]   @relation("DocumentCreator")
+  auditEvents      AuditEvent[] @relation("AuditActor")
+
+  @@index([createdAt])
+}
+
+model Workspace {
+  id           String         @id @default(uuid()) @db.Uuid
+  name         String         @db.VarChar(200)
+  type         WorkspaceType
+  createdAt    DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime       @updatedAt @db.Timestamptz(3)
+  archivedAt   DateTime?      @db.Timestamptz(3)
+  memberships  Membership[]
+  invitations  Invitation[]
+  customers    Customer[]
+  catalogItems ItemService[]
+  customRates  CustomRate[]
+  documents    Document[]
+  files        DocumentFile[]
+  auditEvents  AuditEvent[]
+  subscription Subscription?
+
+  @@index([type])
+  @@index([archivedAt])
+}
+
+model Membership {
+  id          String           @id @default(uuid()) @db.Uuid
+  userId      String           @db.Uuid
+  workspaceId String           @db.Uuid
+  role        MembershipRole
+  status      MembershipStatus @default(ACTIVE)
+  createdAt   DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime         @updatedAt @db.Timestamptz(3)
+  user        User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId, status])
+  @@index([userId, status])
+}
+
+model Invitation {
+  id              String           @id @default(uuid()) @db.Uuid
+  workspaceId     String           @db.Uuid
+  email           String           @db.VarChar(320)
+  role            MembershipRole
+  status          InvitationStatus @default(PENDING)
+  invitedByUserId String           @db.Uuid
+  expiresAt       DateTime         @db.Timestamptz(3)
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @db.Timestamptz(3)
+  workspace       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  invitedBy       User             @relation("InvitationInviter", fields: [invitedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([workspaceId, email], map: "Invitation_pending_workspace_email_key", where: { status: "PENDING" })
+  @@index([workspaceId, status])
+  @@index([email, status])
+  @@index([invitedByUserId])
+}
+
+model Customer {
+  id          String     @id @default(uuid()) @db.Uuid
+  workspaceId String     @db.Uuid
+  name        String     @db.VarChar(200)
+  email       String?    @db.VarChar(320)
+  phone       String?    @db.VarChar(50)
+  address     String?    @db.Text
+  businessTin String?    @db.VarChar(100)
+  notes       String?    @db.Text
+  createdAt   DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime   @updatedAt @db.Timestamptz(3)
+  archivedAt  DateTime?  @db.Timestamptz(3)
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  documents   Document[]
+
+  @@index([workspaceId])
+  @@index([workspaceId, name])
+  @@index([workspaceId, archivedAt])
+}
+
+model ItemService {
+  id          String         @id @default(uuid()) @db.Uuid
+  workspaceId String         @db.Uuid
+  name        String         @db.VarChar(200)
+  description String?        @db.Text
+  unitPrice   Decimal        @db.Decimal(19, 4)
+  createdAt   DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime       @updatedAt @db.Timestamptz(3)
+  archivedAt  DateTime?      @db.Timestamptz(3)
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  lines       DocumentLine[]
+
+  @@index([workspaceId])
+  @@index([workspaceId, name])
+  @@index([workspaceId, archivedAt])
+}
+
+model CustomRate {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid
+  name        String    @db.VarChar(200)
+  type        RateType
+  scope       RateScope @default(CUSTOM)
+  value       Decimal   @db.Decimal(19, 6)
+  description String?   @db.Text
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+
+  @@index([workspaceId])
+  @@index([workspaceId, isActive])
+}
+
+model TaxProfile {
+  id           String       @id @default(uuid()) @db.Uuid
+  jurisdiction String       @db.VarChar(2)
+  code         String       @db.VarChar(100)
+  name         String       @db.VarChar(200)
+  description  String?      @db.Text
+  createdAt    DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime     @updatedAt @db.Timestamptz(3)
+  versions     TaxVersion[]
+
+  @@unique([jurisdiction, code])
+  @@index([jurisdiction])
+}
+
+model TaxVersion {
+  id            String         @id @default(uuid()) @db.Uuid
+  taxProfileId  String         @db.Uuid
+  version       String         @db.VarChar(50)
+  effectiveFrom DateTime       @db.Date
+  effectiveTo   DateTime?      @db.Date
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime       @updatedAt @db.Timestamptz(3)
+  taxProfile    TaxProfile     @relation(fields: [taxProfileId], references: [id], onDelete: Restrict)
+  components    TaxComponent[]
+  documents     Document[]
+
+  @@unique([taxProfileId, version])
+  @@index([taxProfileId, effectiveFrom, effectiveTo])
+  @@index([isActive, effectiveFrom])
+}
+
+model TaxComponent {
+  id               String     @id @default(uuid()) @db.Uuid
+  taxVersionId     String     @db.Uuid
+  code             String     @db.VarChar(100)
+  name             String     @db.VarChar(200)
+  type             RateType   @default(PERCENTAGE)
+  scope            RateScope  @default(STATUTORY)
+  rate             Decimal    @db.Decimal(19, 6)
+  calculationOrder Int
+  baseReference    String?    @db.VarChar(100)
+  metadata         Json?
+  createdAt        DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime   @updatedAt @db.Timestamptz(3)
+  taxVersion       TaxVersion @relation(fields: [taxVersionId], references: [id], onDelete: Restrict)
+
+  @@unique([taxVersionId, code])
+  @@index([taxVersionId, calculationOrder])
+}
+
+model Document {
+  id              String            @id @default(uuid()) @db.Uuid
+  workspaceId     String            @db.Uuid
+  createdByUserId String            @db.Uuid
+  customerId      String?           @db.Uuid
+  taxVersionId    String?           @db.Uuid
+  type            DocumentType
+  status          DocumentStatus    @default(DRAFT)
+  documentNumber  String?           @db.VarChar(100)
+  civDocumentId   String?           @unique @db.VarChar(100)
+  currency        String            @default("GHS") @db.VarChar(3)
+  issueDate       DateTime?         @db.Date
+  dueDate         DateTime?         @db.Date
+  notes           String?           @db.Text
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
+  archivedAt      DateTime?         @db.Timestamptz(3)
+  issuedAt        DateTime?         @db.Timestamptz(3)
+  voidedAt        DateTime?         @db.Timestamptz(3)
+  workspace       Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  createdBy       User              @relation("DocumentCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  customer        Customer?         @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  taxVersion      TaxVersion?       @relation(fields: [taxVersionId], references: [id], onDelete: Restrict)
+  lines           DocumentLine[]
+  snapshot        DocumentSnapshot?
+  files           DocumentFile[]
+
+  @@index([workspaceId])
+  @@index([workspaceId, status])
+  @@index([workspaceId, type])
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, archivedAt])
+  @@index([workspaceId, documentNumber])
+  @@index([customerId])
+  @@index([createdByUserId])
+  @@index([taxVersionId])
+}
+
+model DocumentLine {
+  id            String       @id @default(uuid()) @db.Uuid
+  documentId    String       @db.Uuid
+  catalogItemId String?      @db.Uuid
+  description   String       @db.Text
+  quantity      Decimal      @default(1) @db.Decimal(19, 6)
+  unitPrice     Decimal      @db.Decimal(19, 4)
+  lineOrder     Int
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
+  document      Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  catalogItem   ItemService? @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)
+
+  @@unique([documentId, lineOrder])
+  @@index([catalogItemId])
+}
+
+model DocumentSnapshot {
+  id              String   @id @default(uuid()) @db.Uuid
+  documentId      String   @unique @db.Uuid
+  snapshotVersion Int      @default(1)
+  payload         Json
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  document        Document @relation(fields: [documentId], references: [id], onDelete: Restrict)
+}
+
+model DocumentFile {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid
+  documentId  String?   @db.Uuid
+  type        FileType
+  storageKey  String    @unique @db.Text
+  mimeType    String    @db.VarChar(255)
+  sizeBytes   BigInt?
+  checksum    String?   @db.VarChar(128)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  document    Document? @relation(fields: [documentId], references: [id], onDelete: Restrict)
+
+  @@index([workspaceId, type])
+  @@index([documentId])
+}
+
+model AuditEvent {
+  id           String    @id @default(uuid()) @db.Uuid
+  workspaceId  String    @db.Uuid
+  actorUserId  String?   @db.Uuid
+  action       String    @db.VarChar(150)
+  resourceType String    @db.VarChar(100)
+  resourceId   String?   @db.VarChar(100)
+  metadata     Json?
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  actor        User?     @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([actorUserId])
+  @@index([workspaceId, resourceType, resourceId])
+}
+
+model Plan {
+  id            String         @id @default(uuid()) @db.Uuid
+  code          String         @unique @db.VarChar(50)
+  name          String         @db.VarChar(100)
+  description   String?        @db.Text
+  betaPrice     Decimal        @default(0) @db.Decimal(19, 4)
+  currency      String         @default("GHS") @db.VarChar(3)
+  documentLimit Int?
+  memberLimit   Int?
+  isPublic      Boolean        @default(true)
+  isActive      Boolean        @default(true)
+  features      Json           @default("{}")
+  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime       @updatedAt @db.Timestamptz(3)
+  subscriptions Subscription[]
+
+  @@index([isPublic, isActive])
+}
+
+model Subscription {
+  id          String             @id @default(uuid()) @db.Uuid
+  workspaceId String             @unique @db.Uuid
+  planId      String             @db.Uuid
+  status      SubscriptionStatus @default(BETA)
+  startedAt   DateTime           @default(now()) @db.Timestamptz(3)
+  endsAt      DateTime?          @db.Timestamptz(3)
+  createdAt   DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime           @updatedAt @db.Timestamptz(3)
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  plan        Plan               @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([planId])
+  @@index([status])
+}
