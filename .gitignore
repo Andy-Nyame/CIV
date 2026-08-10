@@ -33,6 +33,10 @@ yarn-error.log*
 # env files
 .env*
 !.env.example
+!.env.production.example
+
+# local Neon CLI project link
+.neon
 
 # generated Prisma Client
 /src/generated/prisma/

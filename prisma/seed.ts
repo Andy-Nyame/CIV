@@ -9,10 +9,10 @@ import {
   RateType,
 } from "../src/generated/prisma/client";
 
-const connectionString = process.env.DATABASE_URL;
+const connectionString = process.env.DIRECT_URL;
 
 if (!connectionString) {
-  throw new Error("DATABASE_URL is required to seed the CIV database.");
+  throw new Error("DIRECT_URL is required to seed the CIV database.");
 }
 
 const adapter = new PrismaPg({ connectionString });

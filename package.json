@@ -11,9 +11,13 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
-    "db:migrate": "prisma migrate dev",
-    "db:seed": "prisma db seed",
-    "db:studio": "prisma studio",
+    "db:check:dev": "node --import tsx scripts/check-database-environment.ts development",
+    "db:check:prod": "node --import tsx scripts/check-database-environment.ts production",
+    "db:migrate": "npm run db:migrate:dev",
+    "db:migrate:dev": "npm run db:check:dev && prisma migrate dev",
+    "db:migrate:deploy": "npm run db:check:prod && prisma migrate deploy",
+    "db:seed": "npm run db:check:dev && prisma db seed",
+    "db:studio": "npm run db:check:dev && prisma studio",
     "postinstall": "prisma generate"
   },
   "dependencies": {

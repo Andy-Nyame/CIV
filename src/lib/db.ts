@@ -9,7 +9,14 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 function createPrismaClient() {
+  const appEnv = process.env.APP_ENV;
   const connectionString = process.env.DATABASE_URL;
+
+  if (appEnv !== "development" && appEnv !== "production") {
+    throw new Error(
+      "APP_ENV must be either development or production to initialize Prisma Client.",
+    );
+  }
 
   if (!connectionString) {
     throw new Error("DATABASE_URL is required to initialize Prisma Client.");
