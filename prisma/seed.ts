@@ -16,7 +16,13 @@ if (!connectionString) {
 }
 
 const adapter = new PrismaPg({ connectionString });
-const prisma = new PrismaClient({ adapter });
+const prisma = new PrismaClient({
+  adapter,
+  transactionOptions: {
+    maxWait: 15_000,
+    timeout: 30_000,
+  },
+});
 
 type SeedPlan = {
   code: string;
