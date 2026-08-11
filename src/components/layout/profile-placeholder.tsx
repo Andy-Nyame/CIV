@@ -1,20 +1,42 @@
-export function ProfilePlaceholder() {
+import { signOutAction } from "@/features/auth/actions";
+
+type UserProfileProps = {
+  user: {
+    name?: string | null;
+    email?: string | null;
+  };
+};
+
+export function UserProfile({ user }: UserProfileProps) {
+  const displayName = user.name?.trim() || "CIV user";
+  const initial = (user.name?.trim() || user.email || "C").charAt(0).toUpperCase();
+
   return (
-    <button
-      type="button"
-      className="flex min-h-12 w-full items-center gap-3 rounded-lg px-2 text-left hover:bg-hover"
-      aria-label="Profile menu placeholder"
-    >
-      <span
-        className="grid size-9 shrink-0 place-items-center rounded-full bg-civ-navy text-sm font-bold text-white"
-        aria-hidden="true"
-      >
-        U
-      </span>
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-semibold text-text">Profile</span>
-        <span className="block truncate text-xs text-muted">Account placeholder</span>
-      </span>
-    </button>
+    <div className="grid gap-2">
+      <div className="flex min-h-12 items-center gap-3 px-2">
+        <span
+          className="grid size-9 shrink-0 place-items-center rounded-full bg-civ-navy text-sm font-bold text-white"
+          aria-hidden="true"
+        >
+          {initial}
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-semibold text-text">
+            {displayName}
+          </span>
+          {user.email ? (
+            <span className="block truncate text-xs text-muted">{user.email}</span>
+          ) : null}
+        </span>
+      </div>
+      <form action={signOutAction}>
+        <button
+          type="submit"
+          className="min-h-11 w-full rounded-lg border border-border px-3 text-sm font-semibold text-text hover:bg-hover"
+        >
+          Sign Out
+        </button>
+      </form>
+    </div>
   );
 }

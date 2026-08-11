@@ -76,19 +76,60 @@ enum FileType {
 }
 
 model User {
-  id               String       @id @default(uuid()) @db.Uuid
-  name             String?      @db.VarChar(200)
-  email            String?      @unique @db.VarChar(320)
-  emailVerified    DateTime?    @db.Timestamptz(3)
-  image            String?      @db.Text
-  createdAt        DateTime     @default(now()) @db.Timestamptz(3)
-  updatedAt        DateTime     @updatedAt @db.Timestamptz(3)
-  memberships      Membership[]
-  sentInvitations  Invitation[] @relation("InvitationInviter")
-  createdDocuments Document[]   @relation("DocumentCreator")
-  auditEvents      AuditEvent[] @relation("AuditActor")
+  id                String       @id @default(uuid()) @db.Uuid
+  name              String?      @db.VarChar(200)
+  email             String?      @unique @db.VarChar(320)
+  emailVerified     DateTime?    @db.Timestamptz(3)
+  image             String?      @db.Text
+  passwordHash      String?      @db.Text
+  passwordChangedAt DateTime?    @db.Timestamptz(3)
+  createdAt         DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime     @updatedAt @db.Timestamptz(3)
+  accounts          Account[]
+  sessions          Session[]
+  memberships       Membership[]
+  sentInvitations   Invitation[] @relation("InvitationInviter")
+  createdDocuments  Document[]   @relation("DocumentCreator")
+  auditEvents       AuditEvent[] @relation("AuditActor")
 
   @@index([createdAt])
+}
+
+model Account {
+  id                String  @id @default(uuid()) @db.Uuid
+  userId            String  @db.Uuid
+  type              String  @db.VarChar(50)
+  provider          String  @db.VarChar(100)
+  providerAccountId String  @db.VarChar(255)
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String? @db.VarChar(100)
+  scope             String? @db.Text
+  id_token          String? @db.Text
+  session_state     String? @db.Text
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(uuid()) @db.Uuid
+  sessionToken String   @unique @db.Text
+  userId       String   @db.Uuid
+  expires      DateTime @db.Timestamptz(3)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String   @db.VarChar(320)
+  token      String   @db.Text
+  expires    DateTime @db.Timestamptz(3)
+
+  @@unique([identifier, token])
 }
 
 model Workspace {

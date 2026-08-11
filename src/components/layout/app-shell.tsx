@@ -7,10 +7,18 @@ import { AppNavigation } from "@/components/navigation/app-navigation";
 import { ThemeControl } from "@/components/theme/theme-control";
 import { CreateDocumentMenu } from "@/components/ui/create-document-menu";
 
-import { ProfilePlaceholder } from "./profile-placeholder";
+import { UserProfile } from "./profile-placeholder";
 import { WorkspaceSwitcher } from "./workspace-switcher";
 
-export function AppShell({ children }: { children: ReactNode }) {
+type AppShellProps = {
+  children: ReactNode;
+  user: {
+    name?: string | null;
+    email?: string | null;
+  };
+};
+
+export function AppShell({ children, user }: AppShellProps) {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
 
   useEffect(() => {
@@ -61,7 +69,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
         <div className="mt-auto grid gap-4 border-t border-border pt-5">
           <ThemeControl />
-          <ProfilePlaceholder />
+          <UserProfile user={user} />
         </div>
       </aside>
 
@@ -126,7 +134,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
             <div className="mt-auto grid gap-4 border-t border-border pt-5">
               <ThemeControl />
-              <ProfilePlaceholder />
+              <UserProfile user={user} />
             </div>
           </aside>
         </div>
