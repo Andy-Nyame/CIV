@@ -117,3 +117,9 @@ export async function signupAction(
 export async function signOutAction() {
   await signOut({ redirectTo: "/login" });
 }
+
+export async function googleSignInAction(formData: FormData) {
+  await signIn("google", {
+    redirectTo: getSafeAppCallbackUrl(formData.get("callbackUrl")),
+  });
+}

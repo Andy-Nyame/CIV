@@ -24,3 +24,8 @@ export const signupSchema = loginSchema.extend({
     .min(2, "Enter your full name.")
     .max(200, "Name must be 200 characters or fewer."),
 });
+
+export const googleProfileSchema = z.object({
+  email: emailSchema,
+  email_verified: z.literal(true),
+});

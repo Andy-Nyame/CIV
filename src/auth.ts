@@ -1,16 +1,21 @@
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
+import Google from "next-auth/providers/google";
 
 import { authConfig } from "@/auth.config";
 import { verifyPassword } from "@/features/auth/password";
-import { loginSchema } from "@/features/auth/validation";
+import {
+  googleProfileSchema,
+  loginSchema,
+} from "@/features/auth/validation";
 import { db } from "@/lib/db";
 
 export const { auth, handlers, signIn, signOut } = NextAuth({
   ...authConfig,
   adapter: PrismaAdapter(db),
   providers: [
+    Google,
     Credentials({
       credentials: {
         email: { label: "Email", type: "email" },
@@ -58,6 +63,13 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
   ],
   callbacks: {
     ...authConfig.callbacks,
+    signIn({ account, profile }) {
+      if (account?.provider !== "google") {
+        return true;
+      }
+
+      return googleProfileSchema.safeParse(profile).success;
+    },
     jwt({ token, user }) {
       if (user) {
         token.id = user.id;

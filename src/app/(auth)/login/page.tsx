@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { auth } from "@/auth";
 import { AuthForm } from "@/components/ui/auth-form";
+import { getOAuthErrorMessage } from "@/features/auth/errors";
 import { getSafeAppCallbackUrl } from "@/features/auth/redirects";
 
 export const metadata: Metadata = {
@@ -24,6 +25,7 @@ export default async function LoginPage({
     <AuthForm
       mode="login"
       callbackUrl={getSafeAppCallbackUrl(params.callbackUrl)}
+      oauthErrorMessage={getOAuthErrorMessage(params.error)}
     />
   );
 }
