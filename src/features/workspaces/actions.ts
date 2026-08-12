@@ -2,10 +2,12 @@
 
 import { redirect } from "next/navigation";
 
+import { CAPABILITIES } from "@/features/authorization/capabilities";
+import { authorizeWorkspaceById } from "@/features/authorization/context";
+import { WorkspaceAuthorizationError } from "@/features/authorization/errors";
 import { requireUser } from "@/features/auth/session";
 
 import {
-  requireWorkspaceMembership,
   setActiveWorkspaceCookie,
 } from "./access";
 import {
@@ -56,13 +58,18 @@ export async function createWorkspaceAction(
 
 export async function switchWorkspaceAction(formData: FormData) {
   const user = await requireUser();
-  const membership = await requireWorkspaceMembership(
-    user.id,
-    formData.get("workspaceId"),
-  );
 
-  if (membership) {
-    await setActiveWorkspaceCookie(membership.workspace.id);
+  try {
+    const authorization = await authorizeWorkspaceById(
+      user.id,
+      formData.get("workspaceId"),
+      CAPABILITIES.VIEW_WORKSPACE,
+    );
+    await setActiveWorkspaceCookie(authorization.workspace.id);
+  } catch (error) {
+    if (!(error instanceof WorkspaceAuthorizationError)) {
+      throw error;
+    }
   }
 
   redirect("/app");

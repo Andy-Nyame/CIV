@@ -19,9 +19,15 @@ type AppShellProps = {
     image?: string | null;
   };
   workspaceContext: WorkspaceContext;
+  canViewTeam: boolean;
 };
 
-export function AppShell({ children, user, workspaceContext }: AppShellProps) {
+export function AppShell({
+  canViewTeam,
+  children,
+  user,
+  workspaceContext,
+}: AppShellProps) {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
 
   useEffect(() => {
@@ -68,7 +74,7 @@ export function AppShell({ children, user, workspaceContext }: AppShellProps) {
           <CreateDocumentMenu />
         </div>
         <div className="mt-6">
-          <AppNavigation />
+          <AppNavigation canViewTeam={canViewTeam} />
         </div>
         <div className="mt-auto grid gap-4 border-t border-border pt-5">
           <ThemeControl />
@@ -133,7 +139,10 @@ export function AppShell({ children, user, workspaceContext }: AppShellProps) {
             <div className="mt-7 grid gap-5">
               <WorkspaceSwitcher workspaceContext={workspaceContext} />
               <CreateDocumentMenu />
-              <AppNavigation onNavigate={() => setMobileNavigationOpen(false)} />
+              <AppNavigation
+                canViewTeam={canViewTeam}
+                onNavigate={() => setMobileNavigationOpen(false)}
+              />
             </div>
             <div className="mt-auto grid gap-4 border-t border-border pt-5">
               <ThemeControl />

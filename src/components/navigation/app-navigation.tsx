@@ -5,13 +5,22 @@ import { usePathname } from "next/navigation";
 
 import { appNavigation } from "@/lib/navigation";
 
-export function AppNavigation({ onNavigate }: { onNavigate?: () => void }) {
+export function AppNavigation({
+  canViewTeam,
+  onNavigate,
+}: {
+  canViewTeam: boolean;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
+  const visibleNavigation = appNavigation.filter(
+    (item) => !("requiredCapability" in item) || canViewTeam,
+  );
 
   return (
     <nav aria-label="Main navigation">
       <ul className="grid gap-1">
-        {appNavigation.map((item) => {
+        {visibleNavigation.map((item) => {
           const isActive =
             item.href === "/app"
               ? pathname === item.href

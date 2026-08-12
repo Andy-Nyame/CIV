@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "test:authorization": "node --import tsx --test src/features/authorization/*.test.ts",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
     "db:check:dev": "node --import tsx scripts/check-database-environment.ts development",

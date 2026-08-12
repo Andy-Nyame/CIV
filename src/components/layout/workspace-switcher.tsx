@@ -39,6 +39,9 @@ export function WorkspaceSwitcher({
           Switch workspace
         </button>
       </form>
+      <p className="px-1 text-xs text-muted">
+        Role: {current.role.charAt(0) + current.role.slice(1).toLowerCase()}
+      </p>
       <Link
         href="/app/workspaces/new"
         className="rounded-md px-1 text-xs font-semibold text-link underline-offset-4 hover:underline"
