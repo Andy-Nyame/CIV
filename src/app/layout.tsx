@@ -17,12 +17,15 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  applicationName: "CIV",
   title: {
     default: "CIV — Create. Issue. Verify.",
     template: "%s | CIV",
   },
   description:
     "Create, issue, store and verify professional business documents.",
+  creator: "CIV",
+  keywords: ["CIV", "business documents", "invoices", "receipts", "quotations"],
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

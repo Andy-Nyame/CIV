@@ -76,23 +76,38 @@ enum FileType {
 }
 
 model User {
-  id                String       @id @default(uuid()) @db.Uuid
-  name              String?      @db.VarChar(200)
-  email             String?      @unique @db.VarChar(320)
-  emailVerified     DateTime?    @db.Timestamptz(3)
-  image             String?      @db.Text
-  passwordHash      String?      @db.Text
-  passwordChangedAt DateTime?    @db.Timestamptz(3)
-  createdAt         DateTime     @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime     @updatedAt @db.Timestamptz(3)
+  id                String            @id @default(uuid()) @db.Uuid
+  name              String?           @db.VarChar(200)
+  email             String?           @unique @db.VarChar(320)
+  emailVerified     DateTime?         @db.Timestamptz(3)
+  image             String?           @db.Text
+  passwordHash      String?           @db.Text
+  passwordChangedAt DateTime?         @db.Timestamptz(3)
+  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @db.Timestamptz(3)
   accounts          Account[]
   sessions          Session[]
   memberships       Membership[]
-  sentInvitations   Invitation[] @relation("InvitationInviter")
-  createdDocuments  Document[]   @relation("DocumentCreator")
-  auditEvents       AuditEvent[] @relation("AuditActor")
+  signatureProfile  SignatureProfile?
+  sentInvitations   Invitation[]      @relation("InvitationInviter")
+  createdDocuments  Document[]        @relation("DocumentCreator")
+  auditEvents       AuditEvent[]      @relation("AuditActor")
 
   @@index([createdAt])
+}
+
+model SignatureProfile {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @unique @db.Uuid
+  storageKey String   @unique @db.VarChar(1024)
+  mimeType   String   @db.VarChar(50)
+  width      Int
+  height     Int
+  sizeBytes  Int
+  checksum   String   @db.Char(64)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Account {

@@ -10,6 +10,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test:authorization": "node --loader ./scripts/server-only-loader.mjs --import tsx --test src/features/authorization/*.test.ts src/features/team/*.test.ts",
+    "test:profile": "node --import tsx --test src/features/profile/*.test.ts",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
     "db:check:dev": "node --import tsx scripts/check-database-environment.ts development",

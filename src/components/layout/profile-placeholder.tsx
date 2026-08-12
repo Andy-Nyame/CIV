@@ -1,6 +1,8 @@
 import Image from "next/image";
+import Link from "next/link";
 
 import { signOutAction } from "@/features/auth/actions";
+import { getTrustedProfileImage } from "@/features/profile/image";
 
 type UserProfileProps = {
   user: {
@@ -10,30 +12,18 @@ type UserProfileProps = {
   };
 };
 
-function getGoogleProfileImage(image: string | null | undefined) {
-  if (!image) {
-    return null;
-  }
-
-  try {
-    const url = new URL(image);
-    return url.protocol === "https:" &&
-      url.hostname === "lh3.googleusercontent.com"
-      ? image
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 export function UserProfile({ user }: UserProfileProps) {
   const displayName = user.name?.trim() || "CIV user";
   const initial = (user.name?.trim() || user.email || "C").charAt(0).toUpperCase();
-  const profileImage = getGoogleProfileImage(user.image);
+  const profileImage = getTrustedProfileImage(user.image);
 
   return (
     <div className="grid gap-2">
-      <div className="flex min-h-12 items-center gap-3 px-2">
+      <Link
+        href="/app/profile"
+        className="flex min-h-12 items-center gap-3 rounded-lg px-2 hover:bg-hover"
+        aria-label="Open personal profile settings"
+      >
         {profileImage ? (
           <Image
             alt=""
@@ -58,7 +48,7 @@ export function UserProfile({ user }: UserProfileProps) {
             <span className="block truncate text-xs text-muted">{user.email}</span>
           ) : null}
         </span>
-      </div>
+      </Link>
       <form action={signOutAction}>
         <button
           type="submit"
