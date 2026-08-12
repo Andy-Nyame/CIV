@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 
 import { CreateDocumentMenu } from "@/components/ui/create-document-menu";
 import { PageHeading } from "@/components/ui/page-heading";
+import { requireUser } from "@/features/auth/session";
+import { getWorkspaceContextForUser } from "@/features/workspaces/access";
 
 export const metadata: Metadata = {
   title: "Home",
@@ -13,12 +15,16 @@ const summaries = [
   { label: "Vault Usage", value: "—" },
 ];
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const user = await requireUser();
+  const workspaceContext = await getWorkspaceContextForUser(user.id);
+  const workspaceName = workspaceContext.current?.name ?? "your workspace";
+
   return (
     <div>
       <PageHeading
         title="Welcome to CIV"
-        description="Create, issue and manage professional business documents from your workspace."
+        description={`Create, issue and manage professional business documents for ${workspaceName}.`}
         action={<CreateDocumentMenu label="Create Document" />}
       />
 

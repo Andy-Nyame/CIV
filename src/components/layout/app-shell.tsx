@@ -6,6 +6,7 @@ import { CivLogo } from "@/components/brand/civ-logo";
 import { AppNavigation } from "@/components/navigation/app-navigation";
 import { ThemeControl } from "@/components/theme/theme-control";
 import { CreateDocumentMenu } from "@/components/ui/create-document-menu";
+import type { WorkspaceContext } from "@/features/workspaces/types";
 
 import { UserProfile } from "./profile-placeholder";
 import { WorkspaceSwitcher } from "./workspace-switcher";
@@ -17,9 +18,10 @@ type AppShellProps = {
     email?: string | null;
     image?: string | null;
   };
+  workspaceContext: WorkspaceContext;
 };
 
-export function AppShell({ children, user }: AppShellProps) {
+export function AppShell({ children, user, workspaceContext }: AppShellProps) {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
 
   useEffect(() => {
@@ -62,7 +64,7 @@ export function AppShell({ children, user }: AppShellProps) {
       <aside className="sticky top-0 hidden h-screen flex-col border-r border-border bg-surface p-5 lg:flex">
         <CivLogo href="/app" showMotto />
         <div className="mt-8 grid gap-4">
-          <WorkspaceSwitcher />
+          <WorkspaceSwitcher workspaceContext={workspaceContext} />
           <CreateDocumentMenu />
         </div>
         <div className="mt-6">
@@ -129,7 +131,7 @@ export function AppShell({ children, user }: AppShellProps) {
               </button>
             </div>
             <div className="mt-7 grid gap-5">
-              <WorkspaceSwitcher />
+              <WorkspaceSwitcher workspaceContext={workspaceContext} />
               <CreateDocumentMenu />
               <AppNavigation onNavigate={() => setMobileNavigationOpen(false)} />
             </div>

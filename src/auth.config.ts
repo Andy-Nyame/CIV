@@ -18,9 +18,10 @@ export const authConfig = {
       const isAuthenticated = Boolean(auth?.user);
       const { pathname, search } = request.nextUrl;
       const isAppRoute = pathname === "/app" || pathname.startsWith("/app/");
+      const isOnboardingRoute = pathname === "/onboarding";
       const isAuthRoute = pathname === "/login" || pathname === "/signup";
 
-      if (isAppRoute && !isAuthenticated) {
+      if ((isAppRoute || isOnboardingRoute) && !isAuthenticated) {
         const loginUrl = new URL("/login", request.nextUrl);
         loginUrl.searchParams.set("callbackUrl", `${pathname}${search}`);
         return NextResponse.redirect(loginUrl);

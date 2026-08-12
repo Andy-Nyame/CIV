@@ -1,14 +1,20 @@
 import { redirect } from "next/navigation";
 
-import { auth } from "@/auth";
 import { AppShell } from "@/components/layout/app-shell";
+import { requireUser } from "@/features/auth/session";
+import { getWorkspaceContextForUser } from "@/features/workspaces/access";
 
 export default async function CivAppLayout({ children }: LayoutProps<"/app">) {
-  const session = await auth();
+  const user = await requireUser();
+  const workspaceContext = await getWorkspaceContextForUser(user.id);
 
-  if (!session?.user) {
-    redirect("/login");
+  if (!workspaceContext.current) {
+    redirect("/onboarding");
   }
 
-  return <AppShell user={session.user}>{children}</AppShell>;
+  return (
+    <AppShell user={user} workspaceContext={workspaceContext}>
+      {children}
+    </AppShell>
+  );
 }

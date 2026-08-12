@@ -7,6 +7,7 @@ import { hashPassword } from "@/features/auth/password";
 import { getSafeAppCallbackUrl } from "@/features/auth/redirects";
 import type { AuthFormState } from "@/features/auth/types";
 import { loginSchema, signupSchema } from "@/features/auth/validation";
+import { clearActiveWorkspaceCookie } from "@/features/workspaces/access";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 
@@ -115,6 +116,7 @@ export async function signupAction(
 }
 
 export async function signOutAction() {
+  await clearActiveWorkspaceCookie();
   await signOut({ redirectTo: "/login" });
 }
 
