@@ -2,6 +2,14 @@ import "server-only";
 
 import { z } from "zod";
 
+import { requireTeamManagerInTransaction } from "@/features/team/authorization";
+import { MemberLimitError } from "@/features/team/errors";
+import {
+  assertActiveMemberCapacity,
+  lockWorkspaceTeam,
+  teamTransactionOptions,
+} from "@/features/team/limits";
+
 import { CAPABILITIES, hasCapability } from "./capabilities";
 import {
   OwnerProtectionError,
@@ -24,6 +32,16 @@ const membershipMutationSchema = z
     status: z
       .enum(["ACTIVE", "INVITED", "SUSPENDED", "REMOVED"])
       .optional(),
+  })
+  .refine((input) => input.role !== undefined || input.status !== undefined);
+
+const teamMembershipMutationSchema = z
+  .object({
+    actorUserId: z.string().uuid(),
+    workspaceId: z.string().uuid(),
+    targetMembershipId: z.string().uuid(),
+    role: z.enum(["ADMIN", "MANAGER", "STAFF"]).optional(),
+    status: z.enum(["ACTIVE", "SUSPENDED", "REMOVED"]).optional(),
   })
   .refine((input) => input.role !== undefined || input.status !== undefined);
 
@@ -122,7 +140,71 @@ export async function updateWorkspaceMembership(input: unknown) {
         status: true,
       },
     });
-  });
+  }, teamTransactionOptions);
 }
 
-export { OwnerProtectionError, WorkspaceAuthorizationError };
+export async function manageWorkspaceMember(input: unknown) {
+  const result = teamMembershipMutationSchema.safeParse(input);
+  if (!result.success) throw new WorkspaceAuthorizationError();
+  const mutation = result.data;
+
+  return db.$transaction(async (transaction) => {
+    await lockWorkspaceTeam(transaction, mutation.workspaceId);
+    const actor = await requireTeamManagerInTransaction(
+      transaction,
+      mutation.actorUserId,
+      mutation.workspaceId,
+    );
+    const target = await transaction.membership.findFirst({
+      where: {
+        id: mutation.targetMembershipId,
+        workspaceId: mutation.workspaceId,
+      },
+      select: { id: true, role: true, status: true },
+    });
+
+    if (!target) throw new WorkspaceAuthorizationError();
+    if (target.role === MembershipRole.OWNER) {
+      throw new OwnerProtectionError();
+    }
+
+    const activeOwnerCount = await transaction.membership.count({
+      where: {
+        workspaceId: mutation.workspaceId,
+        role: MembershipRole.OWNER,
+        status: MembershipStatus.ACTIVE,
+      },
+    });
+    assertOwnerProtections({
+      actorRole: actor.role,
+      targetRole: target.role,
+      targetStatus: target.status,
+      nextRole: mutation.role,
+      nextStatus: mutation.status,
+      activeOwnerCount,
+    });
+
+    if (
+      mutation.status === "ACTIVE" &&
+      target.status !== MembershipStatus.ACTIVE
+    ) {
+      await assertActiveMemberCapacity(transaction, mutation.workspaceId);
+    }
+
+    const data: Prisma.MembershipUpdateInput = {};
+    if (mutation.role !== undefined) data.role = mutation.role;
+    if (mutation.status !== undefined) data.status = mutation.status;
+
+    return transaction.membership.update({
+      where: { id: target.id },
+      data,
+      select: { id: true, role: true, status: true },
+    });
+  }, teamTransactionOptions);
+}
+
+export {
+  MemberLimitError,
+  OwnerProtectionError,
+  WorkspaceAuthorizationError,
+};

@@ -99,7 +99,7 @@ export async function signupAction(
     await signIn("credentials", {
       email: result.data.email,
       password: result.data.password,
-      redirectTo: "/app",
+      redirectTo: getSafeAppCallbackUrl(formData.get("callbackUrl")),
     });
   } catch (error) {
     if (error instanceof AuthError) {
@@ -118,6 +118,14 @@ export async function signupAction(
 export async function signOutAction() {
   await clearActiveWorkspaceCookie();
   await signOut({ redirectTo: "/login" });
+}
+
+export async function signOutForInvitationAction(formData: FormData) {
+  const callbackUrl = getSafeAppCallbackUrl(formData.get("callbackUrl"));
+  await clearActiveWorkspaceCookie();
+  await signOut({
+    redirectTo: `/login?callbackUrl=${encodeURIComponent(callbackUrl)}`,
+  });
 }
 
 export async function googleSignInAction(formData: FormData) {

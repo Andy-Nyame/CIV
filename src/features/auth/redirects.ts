@@ -8,8 +8,15 @@ export function getSafeAppCallbackUrl(value: unknown) {
   }
 
   const url = new URL(value, "https://civ.local");
+  const isInvitationRoute = /^\/invite\/[A-Za-z0-9_-]{43}$/.test(
+    url.pathname,
+  );
 
-  if (url.pathname !== "/app" && !url.pathname.startsWith("/app/")) {
+  if (
+    url.pathname !== "/app" &&
+    !url.pathname.startsWith("/app/") &&
+    !isInvitationRoute
+  ) {
     return "/app";
   }
 

@@ -46,9 +46,7 @@ export function AuthForm({
       </div>
 
       <form action={formAction} className="grid gap-5" noValidate>
-        {!isSignup ? (
-          <input type="hidden" name="callbackUrl" value={callbackUrl} />
-        ) : null}
+        <input type="hidden" name="callbackUrl" value={callbackUrl} />
         {isSignup ? (
           <label
             className="grid gap-2 text-sm font-semibold text-text"
@@ -199,7 +197,7 @@ export function AuthForm({
         {isSignup ? "Already have an account?" : "New to CIV?"}{" "}
         <Link
           className="font-semibold text-link underline-offset-4 hover:underline"
-          href={isSignup ? "/login" : "/signup"}
+          href={`${isSignup ? "/login" : "/signup"}?callbackUrl=${encodeURIComponent(callbackUrl)}`}
         >
           {isSignup ? "Sign in" : "Create account"}
         </Link>

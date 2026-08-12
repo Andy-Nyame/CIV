@@ -1,6 +1,9 @@
 import "server-only";
 
-import { CAPABILITIES } from "@/features/authorization/capabilities";
+import {
+  CAPABILITIES,
+  hasCapability,
+} from "@/features/authorization/capabilities";
 import { requirePageCapability } from "@/features/authorization/context";
 import { db } from "@/lib/db";
 
@@ -21,10 +24,30 @@ export async function getTeamPageData() {
       },
     },
   });
+  const canManageTeam = hasCapability(
+    context.membership,
+    CAPABILITIES.MANAGE_TEAM,
+  );
+  const invitations = canManageTeam
+    ? await db.invitation.findMany({
+        where: { workspaceId: context.workspace.id },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          status: true,
+          expiresAt: true,
+          createdAt: true,
+        },
+      })
+    : [];
 
   return {
     workspace: context.workspace,
     currentMembership: context.membership,
     members,
+    invitations,
+    canManageTeam,
   };
 }
