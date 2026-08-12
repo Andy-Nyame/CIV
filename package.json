@@ -5,12 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test:authorization": "node --loader ./scripts/server-only-loader.mjs --import tsx --test src/features/authorization/*.test.ts src/features/team/*.test.ts",
-    "test:profile": "node --import tsx --test src/features/profile/*.test.ts",
+    "test:profile": "node --import tsx --test src/features/profile/profile.test.ts",
+    "test:storage": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test src/lib/storage/*.test.ts src/features/profile/storage.test.ts",
+    "test:storage:http": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-private-asset-route.ts",
+    "storage:check:r2": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-r2-connectivity.ts",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
     "db:check:dev": "node --import tsx scripts/check-database-environment.ts development",
@@ -24,6 +27,7 @@
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",
+    "@aws-sdk/client-s3": "^3.1108.0",
     "@node-rs/argon2": "^2.0.2",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
@@ -33,6 +37,7 @@
     "pg": "^8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "sharp": "^0.35.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {

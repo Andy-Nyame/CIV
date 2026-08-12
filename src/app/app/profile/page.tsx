@@ -48,6 +48,7 @@ export default async function ProfilePage() {
             <ProfilePhotoControl
               email={profile.email}
               image={profile.image}
+              privateImageUrl={profile.profilePhotoUrl}
               name={profile.name}
             />
             <ProfileNameForm name={profile.name} />
@@ -108,12 +109,10 @@ export default async function ProfilePage() {
             <div className="rounded-lg border border-border bg-page px-4 py-3 text-sm leading-6 text-muted">
               A handwritten signature is a personal visual mark. It is not itself a cryptographic signature or a GRA security element.
             </div>
-            {profile.signature ? (
-              <p className="text-sm text-muted">
-                Signature metadata exists for this account. Private asset delivery will be enabled with CIV storage.
-              </p>
-            ) : null}
-            <SignatureWorkspace />
+            <SignatureWorkspace
+              savedSignature={profile.signature}
+              savedSignatureUrl={profile.signatureUrl}
+            />
           </div>
         </SettingSection>
       </div>

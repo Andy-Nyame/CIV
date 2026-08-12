@@ -20,3 +20,10 @@ export class StalePasswordUpdateError extends Error {
     this.name = "StalePasswordUpdateError";
   }
 }
+
+export class PrivateAssetCleanupError extends Error {
+  constructor(readonly assetWasRemoved: boolean) {
+    super("Private asset cleanup did not complete.");
+    this.name = "PrivateAssetCleanupError";
+  }
+}

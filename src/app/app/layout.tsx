@@ -6,6 +6,7 @@ import {
   hasCapability,
 } from "@/features/authorization/capabilities";
 import { requireUser } from "@/features/auth/session";
+import { getPersonalProfilePhotoUrl } from "@/features/profile/queries";
 import { getWorkspaceContextForUser } from "@/features/workspaces/access";
 
 export default async function CivAppLayout({ children }: LayoutProps<"/app">) {
@@ -16,9 +17,12 @@ export default async function CivAppLayout({ children }: LayoutProps<"/app">) {
     redirect("/onboarding");
   }
 
+  const privateProfilePhotoUrl = await getPersonalProfilePhotoUrl(user.id);
+
   return (
     <AppShell
       user={user}
+      privateProfilePhotoUrl={privateProfilePhotoUrl}
       workspaceContext={workspaceContext}
       canViewTeam={hasCapability(
         workspaceContext.current,

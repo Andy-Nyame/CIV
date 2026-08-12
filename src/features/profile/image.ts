@@ -11,3 +11,10 @@ export function getTrustedProfileImage(image: string | null | undefined) {
     return null;
   }
 }
+
+export function chooseProfileImage(
+  privateImageUrl: string | null | undefined,
+  oauthImage: string | null | undefined,
+) {
+  return privateImageUrl || getTrustedProfileImage(oauthImage);
+}

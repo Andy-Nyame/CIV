@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { signOutAction } from "@/features/auth/actions";
-import { getTrustedProfileImage } from "@/features/profile/image";
+import { chooseProfileImage } from "@/features/profile/image";
 
 type UserProfileProps = {
   user: {
@@ -10,12 +10,13 @@ type UserProfileProps = {
     email?: string | null;
     image?: string | null;
   };
+  privateProfilePhotoUrl?: string | null;
 };
 
-export function UserProfile({ user }: UserProfileProps) {
+export function UserProfile({ user, privateProfilePhotoUrl }: UserProfileProps) {
   const displayName = user.name?.trim() || "CIV user";
   const initial = (user.name?.trim() || user.email || "C").charAt(0).toUpperCase();
-  const profileImage = getTrustedProfileImage(user.image);
+  const profileImage = chooseProfileImage(privateProfilePhotoUrl, user.image);
 
   return (
     <div className="grid gap-2">
@@ -31,6 +32,7 @@ export function UserProfile({ user }: UserProfileProps) {
             height={36}
             src={profileImage}
             width={36}
+            unoptimized={Boolean(privateProfilePhotoUrl)}
           />
         ) : (
           <span

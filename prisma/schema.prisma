@@ -88,12 +88,27 @@ model User {
   accounts          Account[]
   sessions          Session[]
   memberships       Membership[]
+  profilePhoto      ProfilePhoto?
   signatureProfile  SignatureProfile?
   sentInvitations   Invitation[]      @relation("InvitationInviter")
   createdDocuments  Document[]        @relation("DocumentCreator")
   auditEvents       AuditEvent[]      @relation("AuditActor")
 
   @@index([createdAt])
+}
+
+model ProfilePhoto {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @unique @db.Uuid
+  storageKey String   @unique @db.VarChar(1024)
+  mimeType   String   @db.VarChar(50)
+  width      Int
+  height     Int
+  sizeBytes  Int
+  checksum   String   @db.Char(64)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model SignatureProfile {

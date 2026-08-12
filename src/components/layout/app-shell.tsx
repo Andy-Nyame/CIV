@@ -20,6 +20,7 @@ type AppShellProps = {
   };
   workspaceContext: WorkspaceContext;
   canViewTeam: boolean;
+  privateProfilePhotoUrl: string | null;
 };
 
 export function AppShell({
@@ -27,6 +28,7 @@ export function AppShell({
   children,
   user,
   workspaceContext,
+  privateProfilePhotoUrl,
 }: AppShellProps) {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
 
@@ -78,7 +80,7 @@ export function AppShell({
         </div>
         <div className="mt-auto grid gap-4 border-t border-border pt-5">
           <ThemeControl />
-          <UserProfile user={user} />
+          <UserProfile user={user} privateProfilePhotoUrl={privateProfilePhotoUrl} />
         </div>
       </aside>
 
@@ -146,7 +148,7 @@ export function AppShell({
             </div>
             <div className="mt-auto grid gap-4 border-t border-border pt-5">
               <ThemeControl />
-              <UserProfile user={user} />
+              <UserProfile user={user} privateProfilePhotoUrl={privateProfilePhotoUrl} />
             </div>
           </aside>
         </div>

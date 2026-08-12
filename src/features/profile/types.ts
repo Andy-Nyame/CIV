@@ -3,6 +3,7 @@ export type ProfileFieldErrors = {
   currentPassword?: string[];
   newPassword?: string[];
   confirmPassword?: string[];
+  image?: string[];
 };
 
 export type ProfileFormState = {

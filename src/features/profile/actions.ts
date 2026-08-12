@@ -6,14 +6,19 @@ import { requireUser } from "@/features/auth/session";
 
 import {
   IncorrectCurrentPasswordError,
+  PrivateAssetCleanupError,
   ProfileValidationError,
   StalePasswordUpdateError,
 } from "./errors";
 import {
-  removePersonalProfileImage,
+  removePersonalProfilePhoto,
+  removePersonalSignature,
+  savePersonalProfilePhoto,
+  savePersonalSignature,
   updatePersonalDisplayName,
   updatePersonalPassword,
 } from "./service";
+import { PrivateImageValidationError } from "./private-images";
 import type { ProfileFormState } from "./types";
 
 function refreshPersonalIdentity() {
@@ -42,18 +47,95 @@ export async function updateDisplayNameAction(
   }
 }
 
-export async function removeProfileImageAction(
+function fileFrom(formData: FormData) {
+  const value = formData.get("image");
+  if (!(value instanceof File)) {
+    throw new PrivateImageValidationError("Choose an image to upload.");
+  }
+  return value;
+}
+
+function assetResultMessage(
+  result: { cleanupPending: boolean },
+  successMessage: string,
+) {
+  return result.cleanupPending
+    ? `${successMessage} The previous private object could not be cleaned up automatically.`
+    : successMessage;
+}
+
+export async function uploadProfilePhotoAction(
+  _previousState: ProfileFormState,
+  formData: FormData,
+): Promise<ProfileFormState> {
+  const user = await requireUser();
+  try {
+    const result = await savePersonalProfilePhoto(user.id, fileFrom(formData));
+    refreshPersonalIdentity();
+    return {
+      success: true,
+      message: assetResultMessage(result, "Profile photo saved."),
+    };
+  } catch (error) {
+    if (error instanceof PrivateImageValidationError) {
+      return { message: error.message, fieldErrors: { image: [error.message] } };
+    }
+    return { message: "Unable to save your profile photo right now." };
+  }
+}
+
+export async function removeProfilePhotoAction(
   _previousState: ProfileFormState,
 ): Promise<ProfileFormState> {
   void _previousState;
   const user = await requireUser();
 
   try {
-    await removePersonalProfileImage(user.id);
+    await removePersonalProfilePhoto(user.id);
     refreshPersonalIdentity();
     return { success: true, message: "Profile photo removed." };
-  } catch {
+  } catch (error) {
+    if (error instanceof PrivateAssetCleanupError) {
+      return { message: "The photo was removed, but private object cleanup needs attention." };
+    }
     return { message: "Unable to remove your profile photo right now." };
+  }
+}
+
+export async function saveSignatureAction(
+  _previousState: ProfileFormState,
+  formData: FormData,
+): Promise<ProfileFormState> {
+  const user = await requireUser();
+  try {
+    const result = await savePersonalSignature(user.id, fileFrom(formData));
+    revalidatePath("/app/profile");
+    return {
+      success: true,
+      message: assetResultMessage(result, "Personal signature saved."),
+    };
+  } catch (error) {
+    if (error instanceof PrivateImageValidationError) {
+      return { message: error.message, fieldErrors: { image: [error.message] } };
+    }
+    return { message: "Unable to save your signature right now." };
+  }
+}
+
+export async function removeSignatureAction(
+  _previousState: ProfileFormState,
+): Promise<ProfileFormState> {
+  void _previousState;
+  const user = await requireUser();
+  try {
+    await removePersonalSignature(user.id);
+    revalidatePath("/app/profile");
+    return { success: true, message: "Personal signature removed." };
+  } catch (error) {
+    if (error instanceof PrivateAssetCleanupError) {
+      return { message: "The signature was removed, but private object cleanup needs attention." };
+    }
+    return { message: "Unable to remove your signature right now." };
   }
 }
 
