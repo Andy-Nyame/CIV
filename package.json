@@ -13,6 +13,8 @@
     "test:profile": "node --import tsx --test src/features/profile/profile.test.ts",
     "test:storage": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test src/lib/storage/*.test.ts src/features/profile/storage.test.ts",
     "test:storage:http": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-private-asset-route.ts",
+    "test:plans": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test src/features/subscriptions/*.test.ts",
+    "test:plans:http": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-plan-settings-route.ts",
     "storage:check:r2": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-r2-connectivity.ts",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",

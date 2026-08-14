@@ -18,7 +18,7 @@ export async function lockWorkspaceTeam(
   `;
 }
 
-async function getMemberLimit(
+export async function getWorkspaceMemberLimit(
   transaction: Prisma.TransactionClient,
   workspaceId: string,
 ) {
@@ -41,12 +41,37 @@ async function getMemberLimit(
   return subscription.plan.memberLimit;
 }
 
+export async function getWorkspaceMemberCapacityUsage(
+  transaction: Prisma.TransactionClient,
+  workspaceId: string,
+  now = new Date(),
+) {
+  const [activeMembers, pendingInvitations] = await Promise.all([
+    transaction.membership.count({
+      where: { workspaceId, status: "ACTIVE" },
+    }),
+    transaction.invitation.count({
+      where: {
+        workspaceId,
+        status: "PENDING",
+        expiresAt: { gt: now },
+      },
+    }),
+  ]);
+
+  return {
+    activeMembers,
+    pendingInvitations,
+    reservedMemberCapacity: activeMembers + pendingInvitations,
+  };
+}
+
 export async function assertActiveMemberCapacity(
   transaction: Prisma.TransactionClient,
   workspaceId: string,
   additionalMembers = 1,
 ) {
-  const memberLimit = await getMemberLimit(transaction, workspaceId);
+  const memberLimit = await getWorkspaceMemberLimit(transaction, workspaceId);
 
   if (memberLimit === null) return;
 
@@ -64,24 +89,17 @@ export async function assertInvitationCapacity(
   workspaceId: string,
   now = new Date(),
 ) {
-  const memberLimit = await getMemberLimit(transaction, workspaceId);
+  const memberLimit = await getWorkspaceMemberLimit(transaction, workspaceId);
 
   if (memberLimit === null) return;
 
-  const [activeMembers, reservedInvitations] = await Promise.all([
-    transaction.membership.count({
-      where: { workspaceId, status: "ACTIVE" },
-    }),
-    transaction.invitation.count({
-      where: {
-        workspaceId,
-        status: "PENDING",
-        expiresAt: { gt: now },
-      },
-    }),
-  ]);
+  const usage = await getWorkspaceMemberCapacityUsage(
+    transaction,
+    workspaceId,
+    now,
+  );
 
-  if (activeMembers + reservedInvitations + 1 > memberLimit) {
+  if (usage.reservedMemberCapacity + 1 > memberLimit) {
     throw new MemberLimitError();
   }
 }
