@@ -18,10 +18,12 @@ export const authConfig = {
       const isAuthenticated = Boolean(auth?.user);
       const { pathname, search } = request.nextUrl;
       const isAppRoute = pathname === "/app" || pathname.startsWith("/app/");
+      const isPlatformRoute =
+        pathname === "/civ-admin" || pathname.startsWith("/civ-admin/");
       const isOnboardingRoute = pathname === "/onboarding";
       const isAuthRoute = pathname === "/login" || pathname === "/signup";
 
-      if ((isAppRoute || isOnboardingRoute) && !isAuthenticated) {
+      if ((isAppRoute || isPlatformRoute || isOnboardingRoute) && !isAuthenticated) {
         const loginUrl = new URL("/login", request.nextUrl);
         loginUrl.searchParams.set("callbackUrl", `${pathname}${search}`);
         return NextResponse.redirect(loginUrl);

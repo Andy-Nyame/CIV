@@ -75,26 +75,53 @@ enum FileType {
   OTHER
 }
 
+enum PlatformRole {
+  PLATFORM_OWNER
+  PLATFORM_ADMIN
+  ANALYST
+  SUPPORT
+  FINANCE
+}
+
+enum PlatformMembershipStatus {
+  ACTIVE
+  SUSPENDED
+  REMOVED
+}
+
 model User {
-  id                String            @id @default(uuid()) @db.Uuid
-  name              String?           @db.VarChar(200)
-  email             String?           @unique @db.VarChar(320)
-  emailVerified     DateTime?         @db.Timestamptz(3)
-  image             String?           @db.Text
-  passwordHash      String?           @db.Text
-  passwordChangedAt DateTime?         @db.Timestamptz(3)
-  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime          @updatedAt @db.Timestamptz(3)
-  accounts          Account[]
-  sessions          Session[]
-  memberships       Membership[]
-  profilePhoto      ProfilePhoto?
-  signatureProfile  SignatureProfile?
-  sentInvitations   Invitation[]      @relation("InvitationInviter")
-  createdDocuments  Document[]        @relation("DocumentCreator")
-  auditEvents       AuditEvent[]      @relation("AuditActor")
+  id                 String              @id @default(uuid()) @db.Uuid
+  name               String?             @db.VarChar(200)
+  email              String?             @unique @db.VarChar(320)
+  emailVerified      DateTime?           @db.Timestamptz(3)
+  image              String?             @db.Text
+  passwordHash       String?             @db.Text
+  passwordChangedAt  DateTime?           @db.Timestamptz(3)
+  createdAt          DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime            @updatedAt @db.Timestamptz(3)
+  accounts           Account[]
+  sessions           Session[]
+  memberships        Membership[]
+  platformMembership PlatformMembership?
+  profilePhoto       ProfilePhoto?
+  signatureProfile   SignatureProfile?
+  sentInvitations    Invitation[]        @relation("InvitationInviter")
+  createdDocuments   Document[]          @relation("DocumentCreator")
+  auditEvents        AuditEvent[]        @relation("AuditActor")
 
   @@index([createdAt])
+}
+
+model PlatformMembership {
+  id        String                   @id @default(uuid()) @db.Uuid
+  userId    String                   @unique @db.Uuid
+  role      PlatformRole
+  status    PlatformMembershipStatus @default(ACTIVE)
+  createdAt DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime                 @updatedAt @db.Timestamptz(3)
+  user      User                     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([status, role])
 }
 
 model ProfilePhoto {

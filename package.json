@@ -18,6 +18,7 @@
     "test:audit": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test src/features/audit/*.test.ts",
     "test:audit:http": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-activity-route.ts",
     "test:workspaces": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test src/features/workspaces/*.test.ts",
+    "test:platform": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test src/features/platform-admin/*.test.ts",
     "storage:check:r2": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-r2-connectivity.ts",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
@@ -28,6 +29,7 @@
     "db:migrate:deploy": "npm run db:check:prod && prisma migrate deploy",
     "db:seed": "npm run db:check:dev && prisma db seed",
     "db:studio": "npm run db:check:dev && prisma studio",
+    "platform:bootstrap-owner": "npm run db:check:dev && node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/bootstrap-platform-owner.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {
