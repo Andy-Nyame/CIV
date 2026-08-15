@@ -6,6 +6,19 @@ const displayNameSchema = z.string().trim().min(1).max(320);
 const emailSchema = z.string().trim().toLowerCase().email().max(320);
 const roleSchema = z.enum(["OWNER", "ADMIN", "MANAGER", "STAFF"]);
 const planCodeSchema = z.string().trim().min(1).max(50);
+const grantSourceSchema = z.enum([
+  "AUTO_NEW_WORKSPACE",
+  "PLATFORM_MANUAL",
+  "PAYMENT_CONVERSION",
+]);
+const trialMetadataSchema = z
+  .object({
+    trialPlan: planCodeSchema,
+    fallbackPlan: planCodeSchema,
+    endsAt: z.string().trim().min(20).max(40),
+    grantSource: grantSourceSchema,
+  })
+  .strict();
 
 export const auditActionSchema = z.enum(Object.values(AUDIT_ACTIONS));
 export const auditResourceTypeSchema = z.enum(
@@ -45,6 +58,10 @@ export const auditMetadataSchemas = {
       currency: z.string().length(3),
     })
     .strict(),
+  TRIAL_STARTED: trialMetadataSchema,
+  TRIAL_EXPIRED: trialMetadataSchema,
+  TRIAL_CANCELLED: trialMetadataSchema,
+  TRIAL_CONVERTED: trialMetadataSchema,
   MEMBER_INVITED: z
     .object({ invitedEmail: emailSchema, role: roleSchema })
     .strict(),

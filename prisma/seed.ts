@@ -166,6 +166,34 @@ async function seed() {
       });
     }
 
+    const [businessPlan, freePlan] = await Promise.all([
+      transaction.plan.findUniqueOrThrow({
+        where: { code: "BUSINESS" },
+        select: { id: true },
+      }),
+      transaction.plan.findUniqueOrThrow({
+        where: { code: "FREE" },
+        select: { id: true },
+      }),
+    ]);
+
+    await transaction.trialConfiguration.upsert({
+      where: { id: "GLOBAL" },
+      // Platform-managed trial configuration must survive repeat seeds.
+      update: {},
+      create: {
+        id: "GLOBAL",
+        enabled: true,
+        trialPlanId: businessPlan.id,
+        durationDays: 14,
+        fallbackPlanId: freePlan.id,
+        newWorkspacesOnly: true,
+        oneTrialPerWorkspace: true,
+        paymentMethodRequired: false,
+        allowManualGrant: true,
+      },
+    });
+
     const taxProfile = await transaction.taxProfile.upsert({
       where: {
         jurisdiction_code: {

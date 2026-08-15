@@ -346,6 +346,9 @@ test("workspace mutations write safe, transactional, isolated audit history", as
       await db.invitation.deleteMany({
         where: { workspaceId: { in: workspaceIds } },
       });
+      await db.workspaceTrial.deleteMany({
+        where: { workspaceId: { in: workspaceIds } },
+      });
       await db.workspaceDocumentAllowancePeriod.deleteMany({
         where: { workspaceId: { in: workspaceIds } },
       });

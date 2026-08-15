@@ -27,9 +27,9 @@ export default async function DocumentCreditsPage() {
       <section className="mt-7 rounded-xl border border-border bg-surface p-5 sm:p-6" aria-labelledby="capacity-heading">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-semibold text-link">Current plan</p>
-            <h2 id="capacity-heading" className="mt-1 text-2xl font-bold text-text">{data.currentPlan.name}</h2>
-            <p className="mt-1 text-sm text-muted">{data.subscriptionStatus} subscription</p>
+            <p className="text-sm font-semibold text-link">Effective allowance</p>
+            <h2 id="capacity-heading" className="mt-1 text-2xl font-bold text-text">{data.effectivePlan.name}</h2>
+            <p className="mt-1 text-sm text-muted">{data.activeTrial ? `${data.activeTrial.trialPlanNameSnapshot} trial · normal plan ${data.currentPlan.name}` : `${data.subscriptionStatus} subscription`}</p>
           </div>
           <p className="text-sm text-muted">
             Period <LocalDateTime value={data.period.periodStart.toISOString()} dateOnly /> – <LocalDateTime value={data.period.periodEnd.toISOString()} dateOnly />

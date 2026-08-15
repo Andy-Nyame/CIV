@@ -164,6 +164,7 @@ try {
     "/civ-admin/workspaces": "Newest workspaces",
     "/civ-admin/plans": "CIV plan configuration",
     "/civ-admin/credits": "Outstanding purchased credits",
+    "/civ-admin/trials": "Global trial configuration",
     "/civ-admin/storage": "Tracked private assets",
     "/civ-admin/team": "Invite platform staff",
     "/civ-admin/activity": "Recent operational events",

@@ -27,6 +27,11 @@ export const platformNavigation = [
     capability: PLATFORM_CAPABILITIES.VIEW_PLANS,
   },
   {
+    label: "Trials",
+    href: "/civ-admin/trials",
+    capability: PLATFORM_CAPABILITIES.VIEW_TRIALS,
+  },
+  {
     label: "Storage",
     href: "/civ-admin/storage",
     capability: PLATFORM_CAPABILITIES.VIEW_STORAGE_ANALYTICS,

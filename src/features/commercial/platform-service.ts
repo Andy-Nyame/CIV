@@ -66,6 +66,11 @@ export async function updatePlanConfiguration(input: {
           planId: plan.id,
           periodStart: { lte: now },
           periodEnd: { gt: now },
+          workspace: {
+            trials: {
+              none: { status: "ACTIVE", endsAt: { gt: now } },
+            },
+          },
         },
         data: { allowance: plan.documentLimit },
       });

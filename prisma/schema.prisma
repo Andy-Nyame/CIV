@@ -111,6 +111,19 @@ enum DocumentCreditTransactionType {
   BONUS
 }
 
+enum WorkspaceTrialStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  CONVERTED
+}
+
+enum TrialGrantSource {
+  AUTO_NEW_WORKSPACE
+  PLATFORM_MANUAL
+  PAYMENT_CONVERSION
+}
+
 model User {
   id                         String                      @id @default(uuid()) @db.Uuid
   name                       String?                     @db.VarChar(200)
@@ -129,6 +142,7 @@ model User {
   platformAuditEvents        PlatformAuditEvent[]        @relation("PlatformAuditActor")
   documentCreditPurchases    DocumentCreditPurchase[]    @relation("DocumentCreditPurchaseActor")
   documentCreditTransactions DocumentCreditTransaction[] @relation("DocumentCreditTransactionActor")
+  grantedWorkspaceTrials     WorkspaceTrial[]            @relation("WorkspaceTrialGrantor")
   profilePhoto               ProfilePhoto?
   signatureProfile           SignatureProfile?
   sentInvitations            Invitation[]                @relation("InvitationInviter")
@@ -280,6 +294,7 @@ model Workspace {
   documentCreditPurchases    DocumentCreditPurchase[]
   documentCreditTransactions DocumentCreditTransaction[]
   documentAllowancePeriods   WorkspaceDocumentAllowancePeriod[]
+  trials                     WorkspaceTrial[]
 
   @@index([type])
   @@index([archivedAt])
@@ -558,9 +573,67 @@ model Plan {
   updatedAt                   DateTime                           @updatedAt @db.Timestamptz(3)
   subscriptions               Subscription[]
   allowancePeriods            WorkspaceDocumentAllowancePeriod[]
+  trialConfigurationsAsPlan   TrialConfiguration[]               @relation("TrialConfigurationPlan")
+  trialConfigurationsFallback TrialConfiguration[]               @relation("TrialConfigurationFallback")
+  workspaceTrialsAsPlan       WorkspaceTrial[]                   @relation("WorkspaceTrialPlan")
+  workspaceTrialsAsFallback   WorkspaceTrial[]                   @relation("WorkspaceTrialFallback")
 
   @@index([isPublic, isActive, isAvailableForNewWorkspaces])
   @@index([sortOrder, code])
+}
+
+model TrialConfiguration {
+  id                    String   @id @default("GLOBAL") @db.VarChar(20)
+  enabled               Boolean  @default(true)
+  trialPlanId           String   @db.Uuid
+  durationDays          Int      @default(14)
+  fallbackPlanId        String   @db.Uuid
+  newWorkspacesOnly     Boolean  @default(true)
+  oneTrialPerWorkspace  Boolean  @default(true)
+  paymentMethodRequired Boolean  @default(false)
+  allowManualGrant      Boolean  @default(true)
+  createdAt             DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime @updatedAt @db.Timestamptz(3)
+  trialPlan             Plan     @relation("TrialConfigurationPlan", fields: [trialPlanId], references: [id], onDelete: Restrict)
+  fallbackPlan          Plan     @relation("TrialConfigurationFallback", fields: [fallbackPlanId], references: [id], onDelete: Restrict)
+
+  @@index([trialPlanId])
+  @@index([fallbackPlanId])
+}
+
+model WorkspaceTrial {
+  id                         String               @id @default(uuid()) @db.Uuid
+  workspaceId                String               @db.Uuid
+  trialPlanId                String               @db.Uuid
+  fallbackPlanId             String               @db.Uuid
+  status                     WorkspaceTrialStatus @default(ACTIVE)
+  startsAt                   DateTime             @db.Timestamptz(3)
+  endsAt                     DateTime             @db.Timestamptz(3)
+  grantedByUserId            String?              @db.Uuid
+  grantSource                TrialGrantSource
+  cancelledAt                DateTime?            @db.Timestamptz(3)
+  expiredAt                  DateTime?            @db.Timestamptz(3)
+  convertedAt                DateTime?            @db.Timestamptz(3)
+  trialPlanCodeSnapshot      String               @db.VarChar(50)
+  trialPlanNameSnapshot      String               @db.VarChar(100)
+  trialMemberLimitSnapshot   Int?
+  trialDocumentLimitSnapshot Int?
+  trialFeaturesSnapshot      Json                 @default("{}")
+  fallbackPlanCodeSnapshot   String               @db.VarChar(50)
+  fallbackPlanNameSnapshot   String               @db.VarChar(100)
+  createdAt                  DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt                  DateTime             @updatedAt @db.Timestamptz(3)
+  workspace                  Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  trialPlan                  Plan                 @relation("WorkspaceTrialPlan", fields: [trialPlanId], references: [id], onDelete: Restrict)
+  fallbackPlan               Plan                 @relation("WorkspaceTrialFallback", fields: [fallbackPlanId], references: [id], onDelete: Restrict)
+  grantedBy                  User?                @relation("WorkspaceTrialGrantor", fields: [grantedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId], map: "WorkspaceTrial_one_active_per_workspace_key", where: { status: "ACTIVE" })
+  @@index([workspaceId, createdAt])
+  @@index([status, endsAt])
+  @@index([trialPlanId, status])
+  @@index([fallbackPlanId])
+  @@index([grantedByUserId])
 }
 
 model Subscription {

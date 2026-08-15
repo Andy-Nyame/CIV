@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { Prisma } from "@/generated/prisma/client";
+import { resolveWorkspaceEntitlementsInTransaction } from "@/features/trials/entitlements";
 
 import { MemberLimitError, SubscriptionConfigurationError } from "./errors";
 
@@ -22,23 +23,13 @@ export async function getWorkspaceMemberLimit(
   transaction: Prisma.TransactionClient,
   workspaceId: string,
 ) {
-  const subscription = await transaction.subscription.findUnique({
-    where: { workspaceId },
-    select: {
-      plan: {
-        select: {
-          memberLimit: true,
-          isActive: true,
-        },
-      },
-    },
-  });
-
-  if (!subscription?.plan.isActive) {
-    throw new SubscriptionConfigurationError();
-  }
-
-  return subscription.plan.memberLimit;
+  const entitlements = await resolveWorkspaceEntitlementsInTransaction(
+    transaction,
+    workspaceId,
+    { includePurchasedCredits: false },
+  );
+  if (!entitlements.effectivePlan) throw new SubscriptionConfigurationError();
+  return entitlements.effectivePlan.memberLimit;
 }
 
 export async function getWorkspaceMemberCapacityUsage(

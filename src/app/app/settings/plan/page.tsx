@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { LocalDateTime } from "@/components/ui/local-date-time";
 import { PlanSwitchCard } from "@/components/ui/plan-switch-card";
 import { PageHeading } from "@/components/ui/page-heading";
 import { getPlanSettingsPageData } from "@/features/subscriptions/queries";
@@ -22,6 +23,15 @@ function formatBetaPrice(betaPrice: string, currency: string) {
 
 export default async function PlanSettingsPage() {
   const data = await getPlanSettingsPageData();
+  const trialDaysRemaining = data.activeTrial
+    ? Math.max(
+        1,
+        Math.ceil(
+          (data.activeTrial.endsAt.getTime() - data.resolvedAt.getTime()) /
+            (24 * 60 * 60 * 1000),
+        ),
+      )
+    : null;
 
   return (
     <div>
@@ -43,10 +53,32 @@ export default async function PlanSettingsPage() {
         </Link>
       </div>
 
+      {data.activeTrial ? (
+        <section className="mt-8 rounded-xl border border-civ-blue bg-active p-5 sm:p-6" aria-labelledby="trial-status-title">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-link">Active free trial</p>
+              <h2 id="trial-status-title" className="mt-1 text-2xl font-bold text-text">{data.activeTrial.trialPlanNameSnapshot} Trial</h2>
+              <p className="mt-2 text-sm leading-6 text-text">
+                {trialDaysRemaining === 1 ? "1 day remaining" : `${trialDaysRemaining} days remaining`} · Ends <LocalDateTime value={data.activeTrial.endsAt.toISOString()} />
+              </p>
+            </div>
+            <span className="rounded-full bg-surface px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-link">Trial active</span>
+          </div>
+          <p className="mt-4 max-w-3xl text-sm leading-6 text-muted">
+            Your normal plan is {data.currentPlan.name}. After the trial, {data.currentPlan.name} limits apply automatically. Members, data, purchased credits, and stored assets remain in place.
+          </p>
+        </section>
+      ) : data.latestTrial ? (
+        <p className="mt-8 rounded-xl border border-border bg-surface px-4 py-3 text-sm leading-6 text-muted">
+          Your latest {data.latestTrial.trialPlanNameSnapshot} trial is {data.latestTrial.status.toLowerCase()}. The normal {data.currentPlan.name} plan is active.
+        </p>
+      ) : null}
+
       <section className="mt-8 rounded-xl border border-border bg-surface p-5 sm:p-6" aria-labelledby="current-plan-title">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-semibold text-link">Current plan</p>
+            <p className="text-sm font-semibold text-link">{data.activeTrial ? "Normal plan" : "Current plan"}</p>
             <h2 id="current-plan-title" className="mt-1 text-2xl font-bold text-text">
               {data.currentPlan.name}
             </h2>
@@ -65,7 +97,7 @@ export default async function PlanSettingsPage() {
           <div className="rounded-lg border border-border bg-page p-4">
             <dt className="text-sm text-muted">Active members</dt>
             <dd className="mt-1 text-xl font-bold text-text">
-              {formatUsage(data.usage.activeMembers, data.currentPlan.memberLimit)}
+              {formatUsage(data.usage.activeMembers, data.effectivePlan.memberLimit)}
             </dd>
             <p className="mt-1 text-xs text-muted">
               {data.usage.pendingInvitations.toLocaleString("en-GH")} valid pending invitation{data.usage.pendingInvitations === 1 ? "" : "s"} reserve capacity.
@@ -74,14 +106,14 @@ export default async function PlanSettingsPage() {
           <div className="rounded-lg border border-border bg-page p-4">
             <dt className="text-sm text-muted">Reserved member capacity</dt>
             <dd className="mt-1 text-xl font-bold text-text">
-              {formatUsage(data.usage.reservedMemberCapacity, data.currentPlan.memberLimit)}
+              {formatUsage(data.usage.reservedMemberCapacity, data.effectivePlan.memberLimit)}
             </dd>
             <p className="mt-1 text-xs text-muted">Active members plus valid pending invitations.</p>
           </div>
           <div className="rounded-lg border border-border bg-page p-4">
             <dt className="text-sm text-muted">Monthly document usage</dt>
             <dd className="mt-1 text-xl font-bold text-text">
-              {formatUsage(data.usage.issuedDocuments, data.currentPlan.documentLimit)}
+              {formatUsage(data.usage.issuedDocuments, data.effectivePlan.documentLimit)}
             </dd>
             <p className="mt-1 text-xs text-muted">The allowance renews by subscription period. Purchased credits are managed separately.</p>
           </div>

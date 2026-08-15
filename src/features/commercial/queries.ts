@@ -10,6 +10,7 @@ import {
   hasCapability,
 } from "@/features/authorization/capabilities";
 import { requirePageCapability } from "@/features/authorization/context";
+import { resolveWorkspaceEntitlementsInTransaction } from "@/features/trials/entitlements";
 import { db } from "@/lib/db";
 
 import { getPurchasedCreditBalance } from "./ledger";
@@ -100,7 +101,7 @@ export async function getDocumentCreditsPageData() {
       transaction,
       context.workspace.id,
     );
-    const [purchasedBalance, subscription, packs, acquisitions] =
+    const [purchasedBalance, subscription, packs, acquisitions, entitlements] =
       await Promise.all([
         getPurchasedCreditBalance(transaction, context.workspace.id),
         transaction.subscription.findUnique({
@@ -123,8 +124,20 @@ export async function getDocumentCreditsPageData() {
           where: { workspaceId: context.workspace.id, betaAcquisition: true },
           select: { pack: { select: { code: true } } },
         }),
+        resolveWorkspaceEntitlementsInTransaction(
+          transaction,
+          context.workspace.id,
+          { includePurchasedCredits: false },
+        ),
       ]);
-    return { period, purchasedBalance, subscription, packs, acquisitions };
+    return {
+      period,
+      purchasedBalance,
+      subscription,
+      packs,
+      acquisitions,
+      entitlements,
+    };
   }, commercialTransactionOptions);
   if (!data.subscription) throw new Error("Workspace subscription unavailable.");
   const monthlyRemaining =
@@ -134,6 +147,8 @@ export async function getDocumentCreditsPageData() {
   return {
     workspace: context.workspace,
     currentPlan: data.subscription.plan,
+    effectivePlan: data.entitlements.effectivePlan,
+    activeTrial: data.entitlements.activeTrial,
     subscriptionStatus: data.subscription.status,
     period: data.period,
     monthlyRemaining,

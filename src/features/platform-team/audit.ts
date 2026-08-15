@@ -21,6 +21,10 @@ export const PLATFORM_AUDIT_ACTIONS = {
   PLATFORM_CREDIT_PACK_UPDATED: "PLATFORM_CREDIT_PACK_UPDATED",
   PLATFORM_CREDIT_PACK_ACTIVATED: "PLATFORM_CREDIT_PACK_ACTIVATED",
   PLATFORM_CREDIT_PACK_DEACTIVATED: "PLATFORM_CREDIT_PACK_DEACTIVATED",
+  PLATFORM_TRIAL_CONFIGURATION_UPDATED: "PLATFORM_TRIAL_CONFIGURATION_UPDATED",
+  PLATFORM_TRIAL_GRANTED: "PLATFORM_TRIAL_GRANTED",
+  PLATFORM_TRIAL_CANCELLED: "PLATFORM_TRIAL_CANCELLED",
+  PLATFORM_TRIAL_CONVERTED: "PLATFORM_TRIAL_CONVERTED",
 } as const;
 
 export type PlatformAuditAction =
@@ -31,6 +35,8 @@ export const PLATFORM_AUDIT_RESOURCE_TYPES = {
   PLATFORM_MEMBERSHIP: "PLATFORM_MEMBERSHIP",
   PLAN: "PLAN",
   DOCUMENT_CREDIT_PACK: "DOCUMENT_CREDIT_PACK",
+  TRIAL_CONFIGURATION: "TRIAL_CONFIGURATION",
+  WORKSPACE_TRIAL: "WORKSPACE_TRIAL",
 } as const;
 
 export type PlatformAuditResourceType =
@@ -79,6 +85,22 @@ export const platformAuditMetadataSchemas = {
     .strict(),
   PLATFORM_CREDIT_PACK_ACTIVATED: z.object({ packCode: z.string().min(1).max(50) }).strict(),
   PLATFORM_CREDIT_PACK_DEACTIVATED: z.object({ packCode: z.string().min(1).max(50) }).strict(),
+  PLATFORM_TRIAL_CONFIGURATION_UPDATED: z
+    .object({ changedFields: z.array(z.string().min(1).max(50)).min(1).max(12) })
+    .strict(),
+  PLATFORM_TRIAL_GRANTED: z
+    .object({
+      workspaceName: displayNameSchema,
+      trialPlan: z.string().min(1).max(50),
+      endsAt: z.string().min(20).max(40),
+    })
+    .strict(),
+  PLATFORM_TRIAL_CANCELLED: z
+    .object({ workspaceName: displayNameSchema, trialPlan: z.string().min(1).max(50) })
+    .strict(),
+  PLATFORM_TRIAL_CONVERTED: z
+    .object({ workspaceName: displayNameSchema, trialPlan: z.string().min(1).max(50) })
+    .strict(),
 } as const;
 
 const platformAuditActionSchema = z.enum(Object.values(PLATFORM_AUDIT_ACTIONS));
@@ -100,6 +122,10 @@ const actionResource = {
   PLATFORM_CREDIT_PACK_UPDATED: "DOCUMENT_CREDIT_PACK",
   PLATFORM_CREDIT_PACK_ACTIVATED: "DOCUMENT_CREDIT_PACK",
   PLATFORM_CREDIT_PACK_DEACTIVATED: "DOCUMENT_CREDIT_PACK",
+  PLATFORM_TRIAL_CONFIGURATION_UPDATED: "TRIAL_CONFIGURATION",
+  PLATFORM_TRIAL_GRANTED: "WORKSPACE_TRIAL",
+  PLATFORM_TRIAL_CANCELLED: "WORKSPACE_TRIAL",
+  PLATFORM_TRIAL_CONVERTED: "WORKSPACE_TRIAL",
 } as const satisfies Record<PlatformAuditAction, PlatformAuditResourceType>;
 
 type PlatformAuditMetadataByAction = {
@@ -193,6 +219,10 @@ export function platformAuditActionLabel(action: string) {
     PLATFORM_CREDIT_PACK_UPDATED: "Document credit pack updated",
     PLATFORM_CREDIT_PACK_ACTIVATED: "Document credit pack activated",
     PLATFORM_CREDIT_PACK_DEACTIVATED: "Document credit pack deactivated",
+    PLATFORM_TRIAL_CONFIGURATION_UPDATED: "Trial configuration updated",
+    PLATFORM_TRIAL_GRANTED: "Workspace trial granted",
+    PLATFORM_TRIAL_CANCELLED: "Workspace trial cancelled",
+    PLATFORM_TRIAL_CONVERTED: "Workspace trial converted",
   };
   return action in labels ? labels[action as PlatformAuditAction] : "Platform operation";
 }
@@ -254,6 +284,14 @@ export function platformAuditEventDescription(event: PlatformAuditDisplayEvent) 
       return `${actor} activated the ${text(metadata.packCode, "document credit")} pack.`;
     case "PLATFORM_CREDIT_PACK_DEACTIVATED":
       return `${actor} deactivated the ${text(metadata.packCode, "document credit")} pack.`;
+    case "PLATFORM_TRIAL_CONFIGURATION_UPDATED":
+      return `${actor} updated the global trial configuration.`;
+    case "PLATFORM_TRIAL_GRANTED":
+      return `${actor} granted ${text(metadata.workspaceName, "a workspace")} a ${text(metadata.trialPlan, "plan")} trial.`;
+    case "PLATFORM_TRIAL_CANCELLED":
+      return `${actor} cancelled ${text(metadata.workspaceName, "a workspace")}'s ${text(metadata.trialPlan, "plan")} trial.`;
+    case "PLATFORM_TRIAL_CONVERTED":
+      return `${actor} converted ${text(metadata.workspaceName, "a workspace")}'s ${text(metadata.trialPlan, "plan")} trial.`;
     default:
       return `${actor} completed a platform operation.`;
   }

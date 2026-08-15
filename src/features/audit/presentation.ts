@@ -18,6 +18,10 @@ const actionLabels: Record<AuditAction, string> = {
   WORKSPACE_LOGO_UPDATED: "Workspace logo updated",
   WORKSPACE_LOGO_REMOVED: "Workspace logo removed",
   DOCUMENT_CREDITS_ACQUIRED: "Document credits acquired",
+  TRIAL_STARTED: "Trial started",
+  TRIAL_EXPIRED: "Trial expired",
+  TRIAL_CANCELLED: "Trial cancelled",
+  TRIAL_CONVERTED: "Trial converted",
   MEMBER_INVITED: "Member invited",
   INVITATION_CANCELLED: "Invitation cancelled",
   INVITATION_RENEWED: "Invitation renewed",
@@ -94,6 +98,14 @@ export function presentAuditEvent(event: PresentableAuditEvent) {
         return `${actor} removed the workspace logo.`;
       case "DOCUMENT_CREDITS_ACQUIRED":
         return `${actor} added ${typeof metadata.credits === "number" ? metadata.credits.toLocaleString("en-GH") : "document"} carry-forward document credits through ${enumLabel(metadataText(metadata, "packCode", "a credit pack"))}.`;
+      case "TRIAL_STARTED":
+        return `CIV started a ${enumLabel(metadataText(metadata, "trialPlan", "plan"))} trial for this workspace.`;
+      case "TRIAL_EXPIRED":
+        return `The ${enumLabel(metadataText(metadata, "trialPlan", "plan"))} trial expired and normal plan limits resumed.`;
+      case "TRIAL_CANCELLED":
+        return `CIV cancelled the ${enumLabel(metadataText(metadata, "trialPlan", "plan"))} trial and normal plan limits resumed.`;
+      case "TRIAL_CONVERTED":
+        return `The ${enumLabel(metadataText(metadata, "trialPlan", "plan"))} trial converted to a subscription.`;
       case "MEMBER_INVITED":
         return `${actor} invited ${invitedEmail} as ${role}.`;
       case "INVITATION_CANCELLED":

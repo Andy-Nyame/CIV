@@ -7,6 +7,11 @@ import {
 } from "@/generated/prisma/client";
 import { recordAuditEvent } from "@/features/audit/service";
 import { addUtcMonth } from "@/features/commercial/periods";
+import {
+  getNewWorkspaceTrialFoundation,
+  startNewWorkspaceTrialInTransaction,
+} from "@/features/trials/service";
+import { trialTransactionOptions } from "@/features/trials/locking";
 import { db } from "@/lib/db";
 
 import { workspaceInputSchema } from "./validation";
@@ -46,19 +51,11 @@ export async function createWorkspace({
   }
 
   return db.$transaction(async (transaction) => {
-    const freePlan = await transaction.plan.findUnique({
-      where: { code: "FREE" },
-      select: {
-        id: true,
-        documentLimit: true,
-        isActive: true,
-        isAvailableForNewWorkspaces: true,
-      },
-    });
-
-    if (!freePlan?.isActive || !freePlan.isAvailableForNewWorkspaces) {
+    const foundation = await getNewWorkspaceTrialFoundation(transaction);
+    if (!foundation.normalPlan) {
       throw new WorkspaceConfigurationError();
     }
+    const now = new Date();
 
     const workspace = await transaction.workspace.create({
       data: {
@@ -84,20 +81,11 @@ export async function createWorkspace({
     const subscription = await transaction.subscription.create({
       data: {
         workspaceId: workspace.id,
-        planId: freePlan.id,
+        planId: foundation.normalPlan.id,
         status: SubscriptionStatus.BETA,
+        startedAt: now,
       },
       select: { startedAt: true },
-    });
-
-    await transaction.workspaceDocumentAllowancePeriod.create({
-      data: {
-        workspaceId: workspace.id,
-        planId: freePlan.id,
-        periodStart: subscription.startedAt,
-        periodEnd: addUtcMonth(subscription.startedAt),
-        allowance: freePlan.documentLimit,
-      },
     });
 
     await recordAuditEvent(transaction, {
@@ -108,10 +96,34 @@ export async function createWorkspace({
       resourceId: workspace.id,
       metadata: {
         workspaceType: workspace.type,
-        initialPlan: "FREE",
+        initialPlan: foundation.normalPlan.code,
+      },
+    });
+
+    const trial = foundation.autoTrialConfiguration
+      ? await startNewWorkspaceTrialInTransaction(transaction, {
+          workspaceId: workspace.id,
+          workspaceName: workspace.name,
+          creatorUserId: userId,
+          configuration: foundation.autoTrialConfiguration,
+          now,
+        })
+      : null;
+
+    await transaction.workspaceDocumentAllowancePeriod.create({
+      data: {
+        workspaceId: workspace.id,
+        planId: trial?.id
+          ? foundation.autoTrialConfiguration!.trialPlan.id
+          : foundation.normalPlan.id,
+        periodStart: subscription.startedAt,
+        periodEnd: addUtcMonth(subscription.startedAt),
+        allowance: trial?.id
+          ? foundation.autoTrialConfiguration!.trialPlan.documentLimit
+          : foundation.normalPlan.documentLimit,
       },
     });
 
     return workspace;
-  });
+  }, trialTransactionOptions);
 }

@@ -8,6 +8,8 @@ import { requirePageCapability } from "@/features/authorization/context";
 import { lockWorkspaceCommercialAccount } from "@/features/commercial/locking";
 import { ensureCurrentAllowancePeriod } from "@/features/commercial/periods";
 import { getWorkspaceMemberCapacityUsage } from "@/features/team/limits";
+import { resolveWorkspaceEntitlementsInTransaction } from "@/features/trials/entitlements";
+import { trialTransactionOptions } from "@/features/trials/locking";
 import { db } from "@/lib/db";
 
 import { PlanConfigurationError } from "./errors";
@@ -22,7 +24,7 @@ export async function getPlanSettingsPageData() {
       transaction,
       context.workspace.id,
     );
-    const [subscription, plans, memberUsage] =
+    const [subscription, plans, memberUsage, entitlements] =
       await Promise.all([
         transaction.subscription.findUnique({
           where: { workspaceId: context.workspace.id },
@@ -60,10 +62,21 @@ export async function getPlanSettingsPageData() {
           orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
         }),
         getWorkspaceMemberCapacityUsage(transaction, context.workspace.id),
+        resolveWorkspaceEntitlementsInTransaction(
+          transaction,
+          context.workspace.id,
+          { includePurchasedCredits: false },
+        ),
       ]);
 
-    return { subscription, plans, memberUsage, allowancePeriod };
-  });
+    return {
+      subscription,
+      plans,
+      memberUsage,
+      allowancePeriod,
+      entitlements,
+    };
+  }, trialTransactionOptions);
 
   if (!data.subscription) throw new PlanConfigurationError();
 
@@ -84,11 +97,15 @@ export async function getPlanSettingsPageData() {
     .filter((plan): plan is PlanOption => plan !== null);
 
   return {
+    resolvedAt: new Date(),
     workspace: context.workspace,
     currentPlan: {
       ...data.subscription.plan,
       betaPrice: data.subscription.plan.betaPrice.toString(),
     },
+    effectivePlan: data.entitlements.effectivePlan,
+    activeTrial: data.entitlements.activeTrial,
+    latestTrial: data.entitlements.latestTrial,
     subscriptionStatus: data.subscription.status,
     plans,
     usage: {

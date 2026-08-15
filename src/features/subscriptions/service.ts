@@ -9,6 +9,7 @@ import {
   lockWorkspaceTeam,
   teamTransactionOptions,
 } from "@/features/team/limits";
+import { resolveWorkspaceEntitlementsInTransaction } from "@/features/trials/entitlements";
 import { db } from "@/lib/db";
 
 import { requireSubscriptionManagerInTransaction } from "./authorization";
@@ -128,11 +129,16 @@ export async function changeWorkspacePlan(input: ChangeWorkspacePlanInput) {
     const changed = subscription.plan.code !== updated.plan.code;
 
     if (changed) {
+      const entitlements = await resolveWorkspaceEntitlementsInTransaction(
+        transaction,
+        input.workspaceId,
+        { includePurchasedCredits: false },
+      );
       await transaction.workspaceDocumentAllowancePeriod.update({
         where: { id: allowancePeriod.id },
         data: {
-          planId: targetPlan.id,
-          allowance: targetPlan.documentLimit,
+          planId: entitlements.effectivePlan.id,
+          allowance: entitlements.effectivePlan.documentLimit,
         },
       });
 

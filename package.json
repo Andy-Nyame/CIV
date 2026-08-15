@@ -22,6 +22,8 @@
     "test:platform:http": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-platform-admin-route.ts",
     "test:commercial": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test --test-concurrency=1 src/features/commercial/*.test.ts",
     "test:commercial:http": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-commercial-routes.ts",
+    "test:trials": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test --test-concurrency=1 src/features/trials/*.test.ts",
+    "test:trials:http": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-trial-routes.ts",
     "storage:check:r2": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-r2-connectivity.ts",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
