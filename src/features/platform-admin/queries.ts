@@ -231,7 +231,8 @@ export async function getPlatformStorageAnalytics() {
 }
 
 export async function getPlatformActivitySummary() {
-  const [actionCounts, recentEvents] = await Promise.all([
+  const [actionCounts, recentEvents, platformActionCounts, platformEvents] =
+    await Promise.all([
     db.auditEvent.groupBy({
       by: ["action"],
       _count: { _all: true },
@@ -246,6 +247,22 @@ export async function getPlatformActivitySummary() {
         workspace: { select: { type: true } },
       },
     }),
+    db.platformAuditEvent.groupBy({
+      by: ["action"],
+      _count: { _all: true },
+    }),
+    db.platformAuditEvent.findMany({
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 25,
+      select: {
+        id: true,
+        action: true,
+        actorDisplayName: true,
+        resourceType: true,
+        metadata: true,
+        createdAt: true,
+      },
+    }),
   ]);
 
   return {
@@ -253,6 +270,13 @@ export async function getPlatformActivitySummary() {
       .map((entry) => ({ action: entry.action, count: entry._count._all }))
       .sort((left, right) => right.count - left.count),
     recentEvents,
+    platformActionCounts: platformActionCounts
+      .map((entry) => ({ action: entry.action, count: entry._count._all }))
+      .sort((left, right) => right.count - left.count),
+    platformEvents: platformEvents.map(({ metadata, ...event }) => ({
+      ...event,
+      context: metadata,
+    })),
   };
 }
 

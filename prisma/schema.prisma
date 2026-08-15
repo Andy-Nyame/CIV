@@ -89,25 +89,34 @@ enum PlatformMembershipStatus {
   REMOVED
 }
 
+enum PlatformInvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
 model User {
-  id                 String              @id @default(uuid()) @db.Uuid
-  name               String?             @db.VarChar(200)
-  email              String?             @unique @db.VarChar(320)
-  emailVerified      DateTime?           @db.Timestamptz(3)
-  image              String?             @db.Text
-  passwordHash       String?             @db.Text
-  passwordChangedAt  DateTime?           @db.Timestamptz(3)
-  createdAt          DateTime            @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime            @updatedAt @db.Timestamptz(3)
-  accounts           Account[]
-  sessions           Session[]
-  memberships        Membership[]
-  platformMembership PlatformMembership?
-  profilePhoto       ProfilePhoto?
-  signatureProfile   SignatureProfile?
-  sentInvitations    Invitation[]        @relation("InvitationInviter")
-  createdDocuments   Document[]          @relation("DocumentCreator")
-  auditEvents        AuditEvent[]        @relation("AuditActor")
+  id                      String               @id @default(uuid()) @db.Uuid
+  name                    String?              @db.VarChar(200)
+  email                   String?              @unique @db.VarChar(320)
+  emailVerified           DateTime?            @db.Timestamptz(3)
+  image                   String?              @db.Text
+  passwordHash            String?              @db.Text
+  passwordChangedAt       DateTime?            @db.Timestamptz(3)
+  createdAt               DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime             @updatedAt @db.Timestamptz(3)
+  accounts                Account[]
+  sessions                Session[]
+  memberships             Membership[]
+  platformMembership      PlatformMembership?
+  sentPlatformInvitations PlatformInvitation[] @relation("PlatformInvitationInviter")
+  platformAuditEvents     PlatformAuditEvent[] @relation("PlatformAuditActor")
+  profilePhoto            ProfilePhoto?
+  signatureProfile        SignatureProfile?
+  sentInvitations         Invitation[]         @relation("InvitationInviter")
+  createdDocuments        Document[]           @relation("DocumentCreator")
+  auditEvents             AuditEvent[]         @relation("AuditActor")
 
   @@index([createdAt])
 }
@@ -121,7 +130,45 @@ model PlatformMembership {
   updatedAt DateTime                 @updatedAt @db.Timestamptz(3)
   user      User                     @relation(fields: [userId], references: [id], onDelete: Restrict)
 
+  @@unique([role], map: "PlatformMembership_single_active_owner_key", where: { role: "PLATFORM_OWNER", status: "ACTIVE" })
   @@index([status, role])
+}
+
+model PlatformInvitation {
+  id              String                   @id @default(uuid()) @db.Uuid
+  email           String                   @db.VarChar(320)
+  role            PlatformRole
+  status          PlatformInvitationStatus @default(PENDING)
+  tokenHash       String                   @unique @db.Char(64)
+  invitedByUserId String                   @db.Uuid
+  expiresAt       DateTime                 @db.Timestamptz(3)
+  acceptedAt      DateTime?                @db.Timestamptz(3)
+  revokedAt       DateTime?                @db.Timestamptz(3)
+  createdAt       DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime                 @updatedAt @db.Timestamptz(3)
+  invitedBy       User                     @relation("PlatformInvitationInviter", fields: [invitedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([email], map: "PlatformInvitation_pending_email_key", where: { status: "PENDING" })
+  @@index([status, expiresAt])
+  @@index([email, status])
+  @@index([invitedByUserId])
+}
+
+model PlatformAuditEvent {
+  id               String   @id @default(uuid()) @db.Uuid
+  action           String   @db.VarChar(150)
+  actorUserId      String?  @db.Uuid
+  actorDisplayName String?  @db.VarChar(320)
+  resourceType     String   @db.VarChar(100)
+  resourceId       String?  @db.VarChar(100)
+  metadata         Json?
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  actor            User?    @relation("PlatformAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([actorUserId])
+  @@index([action, createdAt])
+  @@index([resourceType, resourceId])
 }
 
 model ProfilePhoto {

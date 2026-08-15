@@ -11,11 +11,14 @@ export function getSafeAppCallbackUrl(value: unknown) {
   const isInvitationRoute = /^\/invite\/[A-Za-z0-9_-]{43}$/.test(
     url.pathname,
   );
+  const isPlatformInvitationRoute =
+    /^\/platform-invite\/[A-Za-z0-9_-]{43}$/.test(url.pathname);
 
   if (
     url.pathname !== "/app" &&
     !url.pathname.startsWith("/app/") &&
-    !isInvitationRoute
+    !isInvitationRoute &&
+    !isPlatformInvitationRoute
   ) {
     return "/app";
   }

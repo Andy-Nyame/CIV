@@ -6,6 +6,10 @@ import { PLATFORM_CAPABILITIES } from "@/features/platform-admin/capabilities";
 import { requirePlatformPageCapability } from "@/features/platform-admin/authorization";
 import { operationalActionLabel, platformRoleLabel } from "@/features/platform-admin/presentation";
 import { getPlatformActivitySummary } from "@/features/platform-admin/queries";
+import {
+  platformAuditActionLabel,
+  platformAuditEventDescription,
+} from "@/features/platform-team/audit";
 
 export const metadata: Metadata = { title: "Activity" };
 
@@ -15,6 +19,25 @@ export default async function PlatformActivityPage() {
   return (
     <div>
       <PlatformPageHeading title="Platform Activity" description="High-level workspace operational events without customer audit metadata, actor identity, or resource contents." />
+      <section className="mt-8 overflow-hidden rounded-xl border border-border bg-surface">
+        <div className="border-b border-border px-5 py-4">
+          <h2 className="font-semibold text-text">Platform team activity</h2>
+          <p className="mt-1 text-sm text-muted">Administrative team events are kept separate from customer workspace audit history.</p>
+        </div>
+        {activity.platformEvents.length ? (
+          <ol className="divide-y divide-border">
+            {activity.platformEvents.map((event) => (
+              <li key={event.id} className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="font-semibold text-text">{platformAuditEventDescription(event)}</p>
+                  <p className="mt-1 text-sm text-muted">{platformAuditActionLabel(event.action)}</p>
+                </div>
+                <p className="shrink-0 text-sm text-muted"><LocalDateTime value={event.createdAt.toISOString()} /></p>
+              </li>
+            ))}
+          </ol>
+        ) : <p className="px-5 py-12 text-center text-muted">No platform team activity recorded.</p>}
+      </section>
       <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <section className="overflow-hidden rounded-xl border border-border bg-surface">
           <div className="border-b border-border px-5 py-4"><h2 className="font-semibold text-text">Recent operational events</h2><p className="mt-1 text-sm text-muted">Latest 25 events, privacy-filtered.</p></div>

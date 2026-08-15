@@ -27,6 +27,11 @@ export const platformNavigation = [
     capability: PLATFORM_CAPABILITIES.VIEW_STORAGE_ANALYTICS,
   },
   {
+    label: "Team",
+    href: "/civ-admin/team",
+    capability: PLATFORM_CAPABILITIES.MANAGE_PLATFORM_TEAM,
+  },
+  {
     label: "Activity",
     href: "/civ-admin/activity",
     capability: PLATFORM_CAPABILITIES.VIEW_PLATFORM_ACTIVITY,

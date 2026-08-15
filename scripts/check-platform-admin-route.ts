@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 import { hashPassword } from "../src/features/auth/password";
 import { db } from "../src/lib/db";
+import { hashPlatformInvitationToken } from "../src/features/platform-team/token";
 
 const baseUrl = process.env.CIV_TEST_BASE_URL ?? "http://localhost:3014";
 const suffix = randomUUID();
@@ -94,6 +95,18 @@ await db.platformMembership.createMany({
   ],
 });
 
+const platformInvitationToken = randomBytes(32).toString("base64url");
+const platformInvitation = await db.platformInvitation.create({
+  data: {
+    email: users[0].email!,
+    role: "SUPPORT",
+    tokenHash: hashPlatformInvitationToken(platformInvitationToken),
+    invitedByUserId: users[1].id,
+    expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+  },
+  select: { id: true },
+});
+
 try {
   const signedOutResponse = await fetch(`${baseUrl}/civ-admin`, {
     redirect: "manual",
@@ -111,6 +124,25 @@ try {
     redirect: "manual",
   });
   assert.equal(workspaceOwnerResponse.status, 404);
+
+  const signedOutInvitationResponse = await fetch(
+    `${baseUrl}/platform-invite/${platformInvitationToken}`,
+  );
+  const signedOutInvitationPage = await signedOutInvitationResponse.text();
+  assert.equal(signedOutInvitationResponse.status, 200);
+  assert.match(signedOutInvitationPage, /Join the CIV platform team/);
+  assert.match(signedOutInvitationPage, /Sign In/);
+  assert.match(signedOutInvitationPage, /Create Account/);
+  assert.match(
+    signedOutInvitationPage,
+    new RegExp(`callbackUrl=%2Fplatform-invite%2F${platformInvitationToken}`),
+  );
+
+  const matchingInvitationResponse = await fetch(
+    `${baseUrl}/platform-invite/${platformInvitationToken}`,
+    { headers: { Cookie: cookieHeader(workspaceOwnerCookies) } },
+  );
+  assert.match(await matchingInvitationResponse.text(), /Accept Platform Invitation/);
 
   const suspendedCookies = await signIn(users[2].email!);
   const suspendedResponse = await fetch(`${baseUrl}/civ-admin`, {
@@ -132,6 +164,7 @@ try {
     "/civ-admin/workspaces": "Newest workspaces",
     "/civ-admin/plans": "CIV beta plans",
     "/civ-admin/storage": "Tracked private assets",
+    "/civ-admin/team": "Invite platform staff",
     "/civ-admin/activity": "Recent operational events",
     "/civ-admin/system": "Database connectivity",
   } as const;
@@ -160,9 +193,12 @@ try {
   }
 
   console.log(
-    "PASS platform route authentication, workspace-role isolation, suspended denial, safe rendering, and navigation",
+    "PASS platform route authentication, invitation continuation, workspace-role isolation, suspended denial, safe rendering, and navigation",
   );
 } finally {
+  await db.platformInvitation.deleteMany({
+    where: { id: platformInvitation.id },
+  });
   await db.platformMembership.deleteMany({
     where: { userId: { in: users.map(({ id }) => id) } },
   });
