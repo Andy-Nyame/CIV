@@ -34,6 +34,10 @@ test("PLATFORM_ADMIN has broad operations access without finance or plan mutatio
     false,
   );
   assert.equal(
+    hasPlatformCapability(membership, PLATFORM_CAPABILITIES.VIEW_PAYMENTS),
+    true,
+  );
+  assert.equal(
     hasPlatformCapability(membership, PLATFORM_CAPABILITIES.VIEW_TRIALS),
     true,
   );
@@ -57,6 +61,13 @@ test("ANALYST is read-only, SUPPORT is operationally limited, and FINANCE is sco
       PLATFORM_CAPABILITIES.MANAGE_PLATFORM_SETTINGS,
     ),
     false,
+  );
+  assert.equal(
+    hasPlatformCapability(
+      { role: "ANALYST" },
+      PLATFORM_CAPABILITIES.VIEW_PAYMENTS,
+    ),
+    true,
   );
   assert.equal(
     hasPlatformCapability({ role: "ANALYST" }, PLATFORM_CAPABILITIES.VIEW_TRIALS),
@@ -86,9 +97,20 @@ test("ANALYST is read-only, SUPPORT is operationally limited, and FINANCE is sco
     false,
   );
   assert.equal(
+    hasPlatformCapability({ role: "SUPPORT" }, PLATFORM_CAPABILITIES.VIEW_PAYMENTS),
+    false,
+  );
+  assert.equal(
     hasPlatformCapability(
       { role: "FINANCE" },
       PLATFORM_CAPABILITIES.VIEW_FINANCIAL_ANALYTICS,
+    ),
+    true,
+  );
+  assert.equal(
+    hasPlatformCapability(
+      { role: "FINANCE" },
+      PLATFORM_CAPABILITIES.VIEW_PAYMENTS,
     ),
     true,
   );

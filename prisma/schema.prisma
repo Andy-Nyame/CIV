@@ -124,6 +124,45 @@ enum TrialGrantSource {
   PAYMENT_CONVERSION
 }
 
+enum PaymentProvider {
+  PAYSTACK
+}
+
+enum PaymentPurpose {
+  BILLING_TEST
+  DOCUMENT_CREDITS
+  SUBSCRIPTION_INITIAL
+  SUBSCRIPTION_RENEWAL
+  MANUAL_PLAN_RENEWAL
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentAttemptStatus {
+  PENDING
+  INITIALIZED
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum PaymentProviderEventStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
 model User {
   id                         String                      @id @default(uuid()) @db.Uuid
   name                       String?                     @db.VarChar(200)
@@ -143,6 +182,7 @@ model User {
   documentCreditPurchases    DocumentCreditPurchase[]    @relation("DocumentCreditPurchaseActor")
   documentCreditTransactions DocumentCreditTransaction[] @relation("DocumentCreditTransactionActor")
   grantedWorkspaceTrials     WorkspaceTrial[]            @relation("WorkspaceTrialGrantor")
+  initiatedPayments          Payment[]                   @relation("PaymentInitiator")
   profilePhoto               ProfilePhoto?
   signatureProfile           SignatureProfile?
   sentInvitations            Invitation[]                @relation("InvitationInviter")
@@ -295,6 +335,7 @@ model Workspace {
   documentCreditTransactions DocumentCreditTransaction[]
   documentAllowancePeriods   WorkspaceDocumentAllowancePeriod[]
   trials                     WorkspaceTrial[]
+  payments                   Payment[]
 
   @@index([type])
   @@index([archivedAt])
@@ -734,4 +775,72 @@ model WorkspaceDocumentAllowancePeriod {
   @@unique([workspaceId, periodStart])
   @@index([workspaceId, periodEnd])
   @@index([planId])
+}
+
+model Payment {
+  id                   String          @id @default(uuid()) @db.Uuid
+  workspaceId          String          @db.Uuid
+  initiatedByUserId    String          @db.Uuid
+  purpose              PaymentPurpose
+  provider             PaymentProvider
+  internalReference    String          @unique @db.VarChar(100)
+  providerReference    String?         @unique @db.VarChar(100)
+  amount               Decimal         @db.Decimal(19, 4)
+  currency             String          @db.Char(3)
+  status               PaymentStatus   @default(PENDING)
+  metadata             Json?
+  createdAt            DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime        @updatedAt @db.Timestamptz(3)
+  completedAt          DateTime?       @db.Timestamptz(3)
+  failedAt             DateTime?       @db.Timestamptz(3)
+  cancelledAt          DateTime?       @db.Timestamptz(3)
+  workspace            Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  initiatedBy          User            @relation("PaymentInitiator", fields: [initiatedByUserId], references: [id], onDelete: Restrict)
+  attempts             PaymentAttempt[]
+
+  @@index([workspaceId, createdAt])
+  @@index([initiatedByUserId, createdAt])
+  @@index([status, createdAt])
+  @@index([provider, providerReference])
+}
+
+model PaymentAttempt {
+  id                    String               @id @default(uuid()) @db.Uuid
+  paymentId             String               @db.Uuid
+  provider              PaymentProvider
+  providerReference     String               @unique @db.VarChar(100)
+  providerAccessCode    String?              @db.VarChar(255)
+  authorizationUrl      String?              @db.Text
+  status                PaymentAttemptStatus @default(PENDING)
+  requestMetadata       Json?
+  responseMetadata      Json?
+  initializedAt         DateTime             @default(now()) @db.Timestamptz(3)
+  verifiedAt            DateTime?            @db.Timestamptz(3)
+  completedAt           DateTime?            @db.Timestamptz(3)
+  failedAt              DateTime?            @db.Timestamptz(3)
+  createdAt             DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime             @updatedAt @db.Timestamptz(3)
+  payment               Payment              @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([paymentId, createdAt])
+  @@index([status, createdAt])
+}
+
+model PaymentProviderEvent {
+  id                    String                     @id @default(uuid()) @db.Uuid
+  provider              PaymentProvider
+  eventKey              String                     @unique @db.Char(64)
+  payloadHash           String                     @db.Char(64)
+  eventType             String                     @db.VarChar(100)
+  providerReference     String?                    @db.VarChar(100)
+  status                PaymentProviderEventStatus @default(RECEIVED)
+  safeData              Json?
+  receivedAt            DateTime                   @default(now()) @db.Timestamptz(3)
+  processedAt           DateTime?                  @db.Timestamptz(3)
+  createdAt             DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime                   @updatedAt @db.Timestamptz(3)
+
+  @@index([provider, providerReference])
+  @@index([status, receivedAt])
+  @@index([eventType, receivedAt])
 }

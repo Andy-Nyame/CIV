@@ -1,0 +1,103 @@
+import "server-only";
+
+import { createHash } from "node:crypto";
+
+import { db } from "@/lib/db";
+
+import { PaymentNotFoundError } from "./errors";
+import { getPaystackPaymentProvider } from "./paystack";
+import type { PaymentProviderClient } from "./provider";
+import { verifyPaymentByReference } from "./service";
+
+function sha256(value: Uint8Array | string) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+export async function processPaystackWebhook(
+  rawBody: Uint8Array,
+  signature: string | null,
+  provider: PaymentProviderClient = getPaystackPaymentProvider(),
+) {
+  if (!provider.validateWebhook(rawBody, signature)) {
+    return { accepted: false as const, status: 401 as const };
+  }
+
+  const event = provider.parseWebhookEvent(rawBody);
+  const payloadHash = sha256(rawBody);
+  const eventKey = sha256(
+    [
+      provider.provider,
+      event.eventType,
+      event.eventIdentifier ?? event.providerReference ?? payloadHash,
+    ].join(":"),
+  );
+  const record = await db.paymentProviderEvent.upsert({
+    where: { eventKey },
+    create: {
+      provider: provider.provider,
+      eventKey,
+      payloadHash,
+      eventType: event.eventType,
+      providerReference: event.providerReference,
+      safeData: event.safeData,
+    },
+    update: {},
+    select: { id: true, status: true },
+  });
+  const claimed = await db.paymentProviderEvent.updateMany({
+    where: { id: record.id, status: { in: ["RECEIVED", "FAILED"] } },
+    data: { status: "PROCESSING" },
+  });
+  if (claimed.count === 0) {
+    return { accepted: true as const, duplicate: true };
+  }
+
+  if (event.eventType !== "charge.success" || !event.providerReference) {
+    await db.paymentProviderEvent.update({
+      where: { id: record.id },
+      data: { status: "IGNORED", processedAt: new Date() },
+    });
+    return { accepted: true as const, ignored: true };
+  }
+
+  const knownAttempt = await db.paymentAttempt.findUnique({
+    where: { providerReference: event.providerReference },
+    select: { id: true },
+  });
+  if (!knownAttempt) {
+    await db.paymentProviderEvent.update({
+      where: { id: record.id },
+      data: {
+        status: "IGNORED",
+        processedAt: new Date(),
+        safeData: { ...event.safeData, outcome: "UNKNOWN_REFERENCE" },
+      },
+    });
+    return { accepted: true as const, ignored: true };
+  }
+
+  try {
+    const verification = await verifyPaymentByReference(
+      event.providerReference,
+      { provider },
+    );
+    await db.paymentProviderEvent.update({
+      where: { id: record.id },
+      data: {
+        status: "PROCESSED",
+        processedAt: new Date(),
+        safeData: { ...event.safeData, outcome: verification.status },
+      },
+    });
+    return { accepted: true as const, duplicate: false };
+  } catch (error) {
+    await db.paymentProviderEvent.update({
+      where: { id: record.id },
+      data: {
+        status: error instanceof PaymentNotFoundError ? "IGNORED" : "FAILED",
+        processedAt: new Date(),
+      },
+    });
+    throw error;
+  }
+}
