@@ -23,9 +23,9 @@ export const metadata: Metadata = {
     template: "%s | CIV",
   },
   description:
-    "Create, issue, store and verify professional business documents.",
+    "CIV helps individuals, businesses and organizations create, issue, store and manage professional business documents from one secure workspace.",
   creator: "CIV",
-  keywords: ["CIV", "business documents", "invoices", "receipts", "quotations"],
+  keywords: ["CIV", "business documents", "invoices", "receipts", "quotations", "business workspace"],
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

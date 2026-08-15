@@ -4,7 +4,8 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "CIV — Create. Issue. Verify.",
     short_name: "CIV",
-    description: "Create, issue, store and verify professional business documents.",
+    description:
+      "Create, issue, store and manage professional business documents from one secure workspace.",
     start_url: "/",
     display: "standalone",
     background_color: "#F7F9FC",
