@@ -12,6 +12,11 @@ const actionLabels: Record<AuditAction, string> = {
   WORKSPACE_CREATED: "Workspace created",
   WORKSPACE_UPDATED: "Workspace updated",
   WORKSPACE_PLAN_CHANGED: "Plan changed",
+  WORKSPACE_ARCHIVED: "Workspace archived",
+  WORKSPACE_RESTORED: "Workspace restored",
+  WORKSPACE_OWNERSHIP_TRANSFERRED: "Ownership transferred",
+  WORKSPACE_LOGO_UPDATED: "Workspace logo updated",
+  WORKSPACE_LOGO_REMOVED: "Workspace logo removed",
   MEMBER_INVITED: "Member invited",
   INVITATION_CANCELLED: "Invitation cancelled",
   INVITATION_RENEWED: "Invitation renewed",
@@ -20,6 +25,7 @@ const actionLabels: Record<AuditAction, string> = {
   MEMBER_SUSPENDED: "Member suspended",
   MEMBER_REACTIVATED: "Member reactivated",
   MEMBER_REMOVED: "Member removed",
+  MEMBER_LEFT_WORKSPACE: "Member left",
   DOCUMENT_CREATED: "Document created",
   DOCUMENT_ISSUED: "Document issued",
   DOCUMENT_VOIDED: "Document voided",
@@ -75,6 +81,16 @@ export function presentAuditEvent(event: PresentableAuditEvent) {
         return `${actor} updated this workspace.`;
       case "WORKSPACE_PLAN_CHANGED":
         return `${actor} switched this workspace from ${enumLabel(metadataText(metadata, "fromPlan", "a previous plan"))} to ${enumLabel(metadataText(metadata, "toPlan", "a new plan"))}.`;
+      case "WORKSPACE_ARCHIVED":
+        return `${actor} archived this workspace.`;
+      case "WORKSPACE_RESTORED":
+        return `${actor} restored this workspace.`;
+      case "WORKSPACE_OWNERSHIP_TRANSFERRED":
+        return `${actor} transferred workspace ownership from ${metadataText(metadata, "previousOwnerDisplayName", "the previous Owner")} to ${metadataText(metadata, "newOwnerDisplayName", "the new Owner")}.`;
+      case "WORKSPACE_LOGO_UPDATED":
+        return `${actor} ${metadata.replacedExistingLogo === true ? "replaced" : "added"} the workspace logo.`;
+      case "WORKSPACE_LOGO_REMOVED":
+        return `${actor} removed the workspace logo.`;
       case "MEMBER_INVITED":
         return `${actor} invited ${invitedEmail} as ${role}.`;
       case "INVITATION_CANCELLED":
@@ -91,6 +107,8 @@ export function presentAuditEvent(event: PresentableAuditEvent) {
         return `${actor} reactivated ${member}.`;
       case "MEMBER_REMOVED":
         return `${actor} removed ${member} from this workspace.`;
+      case "MEMBER_LEFT_WORKSPACE":
+        return `${member} left this workspace.`;
       case "DOCUMENT_CREATED":
         return `${actor} created a document.`;
       case "DOCUMENT_ISSUED":

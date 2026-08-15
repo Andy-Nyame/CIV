@@ -72,7 +72,13 @@ export async function getWorkspaceContextForUser(
     available[0] ??
     null;
 
-  return { current, available };
+  return {
+    current,
+    available,
+    preferenceNeedsRepair:
+      preferredWorkspaceId !== undefined &&
+      preferredWorkspaceId !== (current?.id ?? null),
+  };
 }
 
 export async function setActiveWorkspaceCookie(workspaceId: string) {

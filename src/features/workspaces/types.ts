@@ -8,6 +8,7 @@ export type WorkspaceOption = {
 export type WorkspaceContext = {
   current: WorkspaceOption | null;
   available: WorkspaceOption[];
+  preferenceNeedsRepair: boolean;
 };
 
 export type WorkspaceFormState = {
@@ -19,3 +20,11 @@ export type WorkspaceFormState = {
 };
 
 export const initialWorkspaceFormState: WorkspaceFormState = {};
+
+export type WorkspaceSettingsFormState = {
+  success?: boolean;
+  message?: string;
+  fieldErrors?: Record<string, string[] | undefined>;
+};
+
+export const initialWorkspaceSettingsFormState: WorkspaceSettingsFormState = {};

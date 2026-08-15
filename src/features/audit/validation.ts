@@ -23,6 +23,20 @@ export const auditMetadataSchemas = {
   WORKSPACE_PLAN_CHANGED: z
     .object({ fromPlan: planCodeSchema, toPlan: planCodeSchema })
     .strict(),
+  WORKSPACE_ARCHIVED: z.object({ workspaceName: displayNameSchema }).strict(),
+  WORKSPACE_RESTORED: z.object({ workspaceName: displayNameSchema }).strict(),
+  WORKSPACE_OWNERSHIP_TRANSFERRED: z
+    .object({
+      previousOwnerDisplayName: displayNameSchema,
+      newOwnerDisplayName: displayNameSchema,
+    })
+    .strict(),
+  WORKSPACE_LOGO_UPDATED: z
+    .object({ replacedExistingLogo: z.boolean(), mimeType: z.string().max(50) })
+    .strict(),
+  WORKSPACE_LOGO_REMOVED: z
+    .object({ mimeType: z.string().max(50) })
+    .strict(),
   MEMBER_INVITED: z
     .object({ invitedEmail: emailSchema, role: roleSchema })
     .strict(),
@@ -49,6 +63,9 @@ export const auditMetadataSchemas = {
     .object({ memberDisplayName: displayNameSchema, role: roleSchema })
     .strict(),
   MEMBER_REMOVED: z
+    .object({ memberDisplayName: displayNameSchema, role: roleSchema })
+    .strict(),
+  MEMBER_LEFT_WORKSPACE: z
     .object({ memberDisplayName: displayNameSchema, role: roleSchema })
     .strict(),
   DOCUMENT_CREATED: z.object({}).strict(),

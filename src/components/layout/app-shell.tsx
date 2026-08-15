@@ -10,6 +10,7 @@ import type { WorkspaceContext } from "@/features/workspaces/types";
 
 import { UserProfile } from "./profile-placeholder";
 import { WorkspaceSwitcher } from "./workspace-switcher";
+import { ActiveWorkspacePreferenceRepair } from "./active-workspace-preference-repair";
 
 type AppShellProps = {
   children: ReactNode;
@@ -67,6 +68,10 @@ export function AppShell({
 
   return (
     <div className="min-h-screen bg-page lg:grid lg:grid-cols-[17rem_minmax(0,1fr)]">
+      <ActiveWorkspacePreferenceRepair
+        currentWorkspaceId={workspaceContext.current?.id ?? null}
+        needed={workspaceContext.preferenceNeedsRepair}
+      />
       <a className="skip-link" href="#main-content">
         Skip to content
       </a>

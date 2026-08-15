@@ -50,7 +50,7 @@ function assertDeclaredRasterType(type: string) {
   }
 }
 
-async function inspectRaster(file: File, maxSizeBytes: number) {
+export async function inspectPrivateRaster(file: File, maxSizeBytes: number) {
   assertDeclaredRasterType(file.type);
   if (file.size <= 0 || file.size > maxSizeBytes) {
     throw new PrivateImageValidationError(
@@ -81,7 +81,7 @@ async function inspectRaster(file: File, maxSizeBytes: number) {
   return { body, metadata, mimeType: decodedMime };
 }
 
-function checksum(body: Uint8Array) {
+export function calculateImageChecksum(body: Uint8Array) {
   return createHash("sha256").update(body).digest("hex");
 }
 
@@ -89,7 +89,7 @@ export async function processSignatureImage(file: File): Promise<ProcessedPrivat
   const descriptorError = validateSignatureFileDescriptor(file);
   if (descriptorError) throw new PrivateImageValidationError(descriptorError);
 
-  const inspected = await inspectRaster(file, signatureFileConstraints.maxSizeBytes);
+  const inspected = await inspectPrivateRaster(file, signatureFileConstraints.maxSizeBytes);
   const width = inspected.metadata.width!;
   const height = inspected.metadata.height!;
   const dimensionError = validateSignatureDimensions(width, height);
@@ -101,12 +101,12 @@ export async function processSignatureImage(file: File): Promise<ProcessedPrivat
     width,
     height,
     sizeBytes: inspected.body.byteLength,
-    checksum: checksum(inspected.body),
+    checksum: calculateImageChecksum(inspected.body),
   };
 }
 
 export async function processProfilePhoto(file: File): Promise<ProcessedPrivateImage> {
-  const inspected = await inspectRaster(file, profilePhotoConstraints.maxSizeBytes);
+  const inspected = await inspectPrivateRaster(file, profilePhotoConstraints.maxSizeBytes);
   const width = inspected.metadata.width!;
   const height = inspected.metadata.height!;
 
@@ -136,6 +136,6 @@ export async function processProfilePhoto(file: File): Promise<ProcessedPrivateI
     width: profilePhotoConstraints.outputSize,
     height: profilePhotoConstraints.outputSize,
     sizeBytes: output.byteLength,
-    checksum: checksum(output),
+    checksum: calculateImageChecksum(output),
   };
 }

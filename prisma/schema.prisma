@@ -163,24 +163,46 @@ model VerificationToken {
 }
 
 model Workspace {
-  id           String         @id @default(uuid()) @db.Uuid
-  name         String         @db.VarChar(200)
-  type         WorkspaceType
-  createdAt    DateTime       @default(now()) @db.Timestamptz(3)
-  updatedAt    DateTime       @updatedAt @db.Timestamptz(3)
-  archivedAt   DateTime?      @db.Timestamptz(3)
-  memberships  Membership[]
-  invitations  Invitation[]
-  customers    Customer[]
-  catalogItems ItemService[]
-  customRates  CustomRate[]
-  documents    Document[]
-  files        DocumentFile[]
-  auditEvents  AuditEvent[]
-  subscription Subscription?
+  id                 String         @id @default(uuid()) @db.Uuid
+  name               String         @db.VarChar(200)
+  type               WorkspaceType
+  country            String         @default("GH") @db.Char(2)
+  currency           String         @default("GHS") @db.Char(3)
+  email              String?        @db.VarChar(320)
+  phone              String?        @db.VarChar(50)
+  address            String?        @db.Text
+  registrationNumber String?        @db.VarChar(100)
+  businessTin        String?        @db.VarChar(100)
+  createdAt          DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime       @updatedAt @db.Timestamptz(3)
+  archivedAt         DateTime?      @db.Timestamptz(3)
+  logo               WorkspaceLogo?
+  memberships        Membership[]
+  invitations        Invitation[]
+  customers          Customer[]
+  catalogItems       ItemService[]
+  customRates        CustomRate[]
+  documents          Document[]
+  files              DocumentFile[]
+  auditEvents        AuditEvent[]
+  subscription       Subscription?
 
   @@index([type])
   @@index([archivedAt])
+}
+
+model WorkspaceLogo {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @unique @db.Uuid
+  storageKey  String    @unique @db.VarChar(1024)
+  mimeType    String    @db.VarChar(50)
+  width       Int
+  height      Int
+  sizeBytes   Int
+  checksum    String    @db.Char(64)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
 }
 
 model Membership {

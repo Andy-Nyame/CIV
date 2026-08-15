@@ -19,3 +19,11 @@ export function createUserImageKey(input: {
 
   return `users/${input.userId}/${input.kind}/${randomUUID()}.${EXTENSIONS[input.mimeType]}`;
 }
+
+export function createWorkspaceLogoKey(workspaceId: string) {
+  if (!/^[a-f0-9-]{36}$/i.test(workspaceId)) {
+    throw new Error("Invalid workspace identity for object key.");
+  }
+
+  return `workspaces/${workspaceId}/logo/${randomUUID()}.webp`;
+}

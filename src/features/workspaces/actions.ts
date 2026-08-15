@@ -8,6 +8,7 @@ import { WorkspaceAuthorizationError } from "@/features/authorization/errors";
 import { requireUser } from "@/features/auth/session";
 
 import {
+  clearActiveWorkspaceCookie,
   setActiveWorkspaceCookie,
 } from "./access";
 import {
@@ -73,4 +74,27 @@ export async function switchWorkspaceAction(formData: FormData) {
   }
 
   redirect("/app");
+}
+
+export async function repairActiveWorkspacePreferenceAction(
+  workspaceId: string | null,
+) {
+  const user = await requireUser();
+
+  if (workspaceId === null) {
+    await clearActiveWorkspaceCookie();
+    return;
+  }
+
+  try {
+    const authorization = await authorizeWorkspaceById(
+      user.id,
+      workspaceId,
+      CAPABILITIES.VIEW_WORKSPACE,
+    );
+    await setActiveWorkspaceCookie(authorization.workspace.id);
+  } catch (error) {
+    if (!(error instanceof WorkspaceAuthorizationError)) throw error;
+    await clearActiveWorkspaceCookie();
+  }
 }

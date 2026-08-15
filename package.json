@@ -17,6 +17,7 @@
     "test:plans:http": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-plan-settings-route.ts",
     "test:audit": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test src/features/audit/*.test.ts",
     "test:audit:http": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-activity-route.ts",
+    "test:workspaces": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test src/features/workspaces/*.test.ts",
     "storage:check:r2": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-r2-connectivity.ts",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
