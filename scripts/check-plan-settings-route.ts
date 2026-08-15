@@ -116,6 +116,9 @@ try {
   console.log("PASS plan settings route visibility and workspace-cookie isolation");
 } finally {
   await db.auditEvent.deleteMany({ where: { workspaceId: workspace.id } });
+  await db.workspaceDocumentAllowancePeriod.deleteMany({
+    where: { workspaceId: workspace.id },
+  });
   await db.subscription.deleteMany({ where: { workspaceId: workspace.id } });
   await db.membership.deleteMany({ where: { workspaceId: workspace.id } });
   await db.workspace.delete({ where: { id: workspace.id } });

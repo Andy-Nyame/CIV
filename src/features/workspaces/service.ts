@@ -6,6 +6,7 @@ import {
   SubscriptionStatus,
 } from "@/generated/prisma/client";
 import { recordAuditEvent } from "@/features/audit/service";
+import { addUtcMonth } from "@/features/commercial/periods";
 import { db } from "@/lib/db";
 
 import { workspaceInputSchema } from "./validation";
@@ -47,10 +48,15 @@ export async function createWorkspace({
   return db.$transaction(async (transaction) => {
     const freePlan = await transaction.plan.findUnique({
       where: { code: "FREE" },
-      select: { id: true, isActive: true },
+      select: {
+        id: true,
+        documentLimit: true,
+        isActive: true,
+        isAvailableForNewWorkspaces: true,
+      },
     });
 
-    if (!freePlan?.isActive) {
+    if (!freePlan?.isActive || !freePlan.isAvailableForNewWorkspaces) {
       throw new WorkspaceConfigurationError();
     }
 
@@ -75,11 +81,22 @@ export async function createWorkspace({
       },
     });
 
-    await transaction.subscription.create({
+    const subscription = await transaction.subscription.create({
       data: {
         workspaceId: workspace.id,
         planId: freePlan.id,
         status: SubscriptionStatus.BETA,
+      },
+      select: { startedAt: true },
+    });
+
+    await transaction.workspaceDocumentAllowancePeriod.create({
+      data: {
+        workspaceId: workspace.id,
+        planId: freePlan.id,
+        periodStart: subscription.startedAt,
+        periodEnd: addUtcMonth(subscription.startedAt),
+        allowance: freePlan.documentLimit,
       },
     });
 

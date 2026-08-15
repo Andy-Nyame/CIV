@@ -16,6 +16,11 @@ export const PLATFORM_AUDIT_ACTIONS = {
   PLATFORM_MEMBER_SUSPENDED: "PLATFORM_MEMBER_SUSPENDED",
   PLATFORM_MEMBER_REACTIVATED: "PLATFORM_MEMBER_REACTIVATED",
   PLATFORM_MEMBER_REMOVED: "PLATFORM_MEMBER_REMOVED",
+  PLATFORM_PLAN_UPDATED: "PLATFORM_PLAN_UPDATED",
+  PLATFORM_CREDIT_PACK_CREATED: "PLATFORM_CREDIT_PACK_CREATED",
+  PLATFORM_CREDIT_PACK_UPDATED: "PLATFORM_CREDIT_PACK_UPDATED",
+  PLATFORM_CREDIT_PACK_ACTIVATED: "PLATFORM_CREDIT_PACK_ACTIVATED",
+  PLATFORM_CREDIT_PACK_DEACTIVATED: "PLATFORM_CREDIT_PACK_DEACTIVATED",
 } as const;
 
 export type PlatformAuditAction =
@@ -24,6 +29,8 @@ export type PlatformAuditAction =
 export const PLATFORM_AUDIT_RESOURCE_TYPES = {
   PLATFORM_INVITATION: "PLATFORM_INVITATION",
   PLATFORM_MEMBERSHIP: "PLATFORM_MEMBERSHIP",
+  PLAN: "PLAN",
+  DOCUMENT_CREDIT_PACK: "DOCUMENT_CREDIT_PACK",
 } as const;
 
 export type PlatformAuditResourceType =
@@ -61,6 +68,17 @@ export const platformAuditMetadataSchemas = {
   PLATFORM_MEMBER_REMOVED: z
     .object({ memberDisplayName: displayNameSchema, role: recruitablePlatformRoleSchema })
     .strict(),
+  PLATFORM_PLAN_UPDATED: z
+    .object({ planCode: z.string().min(1).max(50), changedFields: z.array(z.string().min(1).max(50)).min(1).max(12) })
+    .strict(),
+  PLATFORM_CREDIT_PACK_CREATED: z
+    .object({ packCode: z.string().min(1).max(50), credits: z.number().int().positive() })
+    .strict(),
+  PLATFORM_CREDIT_PACK_UPDATED: z
+    .object({ packCode: z.string().min(1).max(50), changedFields: z.array(z.string().min(1).max(50)).min(1).max(10) })
+    .strict(),
+  PLATFORM_CREDIT_PACK_ACTIVATED: z.object({ packCode: z.string().min(1).max(50) }).strict(),
+  PLATFORM_CREDIT_PACK_DEACTIVATED: z.object({ packCode: z.string().min(1).max(50) }).strict(),
 } as const;
 
 const platformAuditActionSchema = z.enum(Object.values(PLATFORM_AUDIT_ACTIONS));
@@ -77,6 +95,11 @@ const actionResource = {
   PLATFORM_MEMBER_SUSPENDED: "PLATFORM_MEMBERSHIP",
   PLATFORM_MEMBER_REACTIVATED: "PLATFORM_MEMBERSHIP",
   PLATFORM_MEMBER_REMOVED: "PLATFORM_MEMBERSHIP",
+  PLATFORM_PLAN_UPDATED: "PLAN",
+  PLATFORM_CREDIT_PACK_CREATED: "DOCUMENT_CREDIT_PACK",
+  PLATFORM_CREDIT_PACK_UPDATED: "DOCUMENT_CREDIT_PACK",
+  PLATFORM_CREDIT_PACK_ACTIVATED: "DOCUMENT_CREDIT_PACK",
+  PLATFORM_CREDIT_PACK_DEACTIVATED: "DOCUMENT_CREDIT_PACK",
 } as const satisfies Record<PlatformAuditAction, PlatformAuditResourceType>;
 
 type PlatformAuditMetadataByAction = {
@@ -165,6 +188,11 @@ export function platformAuditActionLabel(action: string) {
     PLATFORM_MEMBER_SUSPENDED: "Platform member suspended",
     PLATFORM_MEMBER_REACTIVATED: "Platform member reactivated",
     PLATFORM_MEMBER_REMOVED: "Platform member removed",
+    PLATFORM_PLAN_UPDATED: "Platform plan updated",
+    PLATFORM_CREDIT_PACK_CREATED: "Document credit pack created",
+    PLATFORM_CREDIT_PACK_UPDATED: "Document credit pack updated",
+    PLATFORM_CREDIT_PACK_ACTIVATED: "Document credit pack activated",
+    PLATFORM_CREDIT_PACK_DEACTIVATED: "Document credit pack deactivated",
   };
   return action in labels ? labels[action as PlatformAuditAction] : "Platform operation";
 }
@@ -216,6 +244,16 @@ export function platformAuditEventDescription(event: PlatformAuditDisplayEvent) 
       return `${actor} reactivated ${member}'s platform access.`;
     case "PLATFORM_MEMBER_REMOVED":
       return `${actor} removed ${member} from the platform team.`;
+    case "PLATFORM_PLAN_UPDATED":
+      return `${actor} updated the ${text(metadata.planCode, "CIV")} plan.`;
+    case "PLATFORM_CREDIT_PACK_CREATED":
+      return `${actor} created the ${text(metadata.packCode, "document credit")} pack.`;
+    case "PLATFORM_CREDIT_PACK_UPDATED":
+      return `${actor} updated the ${text(metadata.packCode, "document credit")} pack.`;
+    case "PLATFORM_CREDIT_PACK_ACTIVATED":
+      return `${actor} activated the ${text(metadata.packCode, "document credit")} pack.`;
+    case "PLATFORM_CREDIT_PACK_DEACTIVATED":
+      return `${actor} deactivated the ${text(metadata.packCode, "document credit")} pack.`;
     default:
       return `${actor} completed a platform operation.`;
   }

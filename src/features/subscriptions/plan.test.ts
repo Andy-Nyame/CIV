@@ -303,6 +303,9 @@ test("beta plan switching, downgrade safety, isolation, and invitation limits", 
         where: { document: { workspaceId: { in: workspaceIds } } },
       });
       await db.document.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
+      await db.workspaceDocumentAllowancePeriod.deleteMany({
+        where: { workspaceId: { in: workspaceIds } },
+      });
       await db.subscription.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
       await db.membership.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
       await db.workspace.deleteMany({ where: { id: { in: workspaceIds } } });

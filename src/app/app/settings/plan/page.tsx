@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { PlanSwitchCard } from "@/components/ui/plan-switch-card";
 import { PageHeading } from "@/components/ui/page-heading";
@@ -32,6 +33,15 @@ export default async function PlanSettingsPage() {
       <p className="mt-7 rounded-xl border border-civ-blue bg-active px-4 py-3 text-sm leading-6 text-text">
         All CIV plans are free during beta. Plan limits remain active so every tier can be tested.
       </p>
+
+      <div className="mt-4 flex justify-end">
+        <Link
+          href="/app/settings/credits"
+          className="min-h-11 rounded-lg border border-civ-blue px-4 py-3 text-sm font-semibold text-link hover:bg-hover"
+        >
+          View Document Credits
+        </Link>
+      </div>
 
       <section className="mt-8 rounded-xl border border-border bg-surface p-5 sm:p-6" aria-labelledby="current-plan-title">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -69,11 +79,11 @@ export default async function PlanSettingsPage() {
             <p className="mt-1 text-xs text-muted">Active members plus valid pending invitations.</p>
           </div>
           <div className="rounded-lg border border-border bg-page p-4">
-            <dt className="text-sm text-muted">Issued documents</dt>
+            <dt className="text-sm text-muted">Monthly document usage</dt>
             <dd className="mt-1 text-xl font-bold text-text">
               {formatUsage(data.usage.issuedDocuments, data.currentPlan.documentLimit)}
             </dd>
-            <p className="mt-1 text-xs text-muted">Drafts excluded; voided issued documents remain counted.</p>
+            <p className="mt-1 text-xs text-muted">The allowance renews by subscription period. Purchased credits are managed separately.</p>
           </div>
         </dl>
       </section>

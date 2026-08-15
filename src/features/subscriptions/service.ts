@@ -2,6 +2,8 @@ import "server-only";
 
 import { recordAuditEvent } from "@/features/audit/service";
 import { WorkspaceAuthorizationError } from "@/features/authorization/errors";
+import { lockWorkspaceCommercialAccount } from "@/features/commercial/locking";
+import { ensureCurrentAllowancePeriod } from "@/features/commercial/periods";
 import {
   getWorkspaceMemberCapacityUsage,
   lockWorkspaceTeam,
@@ -15,7 +17,6 @@ import {
   PlanDowngradeError,
   PlanValidationError,
 } from "./errors";
-import { getIssuedDocumentUsage } from "./usage";
 import { betaPlanCodeSchema } from "./validation";
 
 export type ChangeWorkspacePlanInput = {
@@ -30,6 +31,7 @@ export async function changeWorkspacePlan(input: ChangeWorkspacePlanInput) {
 
   return db.$transaction(async (transaction) => {
     await lockWorkspaceTeam(transaction, input.workspaceId);
+    await lockWorkspaceCommercialAccount(transaction, input.workspaceId);
     await requireSubscriptionManagerInTransaction(
       transaction,
       input.actorUserId,
@@ -54,18 +56,29 @@ export async function changeWorkspacePlan(input: ChangeWorkspacePlanInput) {
           documentLimit: true,
           isActive: true,
           isPublic: true,
+          isAvailableForNewWorkspaces: true,
         },
       }),
     ]);
 
-    if (!subscription || !targetPlan?.isActive || !targetPlan.isPublic) {
+    if (
+      !subscription ||
+      !targetPlan?.isActive ||
+      !targetPlan.isPublic ||
+      !targetPlan.isAvailableForNewWorkspaces
+    ) {
       throw new PlanConfigurationError();
     }
 
-    const [memberUsage, issuedDocuments] = await Promise.all([
-      getWorkspaceMemberCapacityUsage(transaction, input.workspaceId),
-      getIssuedDocumentUsage(transaction, input.workspaceId),
-    ]);
+    const allowancePeriod = await ensureCurrentAllowancePeriod(
+      transaction,
+      input.workspaceId,
+    );
+
+    const memberUsage = await getWorkspaceMemberCapacityUsage(
+      transaction,
+      input.workspaceId,
+    );
 
     if (
       targetPlan.memberLimit !== null &&
@@ -81,11 +94,11 @@ export async function changeWorkspacePlan(input: ChangeWorkspacePlanInput) {
 
     if (
       targetPlan.documentLimit !== null &&
-      issuedDocuments > targetPlan.documentLimit
+      allowancePeriod.used > targetPlan.documentLimit
     ) {
       throw new PlanDowngradeError(
         "DOCUMENTS",
-        issuedDocuments,
+        allowancePeriod.used,
         targetPlan.documentLimit,
         targetPlan.name,
       );
@@ -115,6 +128,14 @@ export async function changeWorkspacePlan(input: ChangeWorkspacePlanInput) {
     const changed = subscription.plan.code !== updated.plan.code;
 
     if (changed) {
+      await transaction.workspaceDocumentAllowancePeriod.update({
+        where: { id: allowancePeriod.id },
+        data: {
+          planId: targetPlan.id,
+          allowance: targetPlan.documentLimit,
+        },
+      });
+
       await recordAuditEvent(transaction, {
         workspaceId: input.workspaceId,
         actorUserId: input.actorUserId,

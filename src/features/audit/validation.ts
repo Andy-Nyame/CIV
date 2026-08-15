@@ -37,6 +37,14 @@ export const auditMetadataSchemas = {
   WORKSPACE_LOGO_REMOVED: z
     .object({ mimeType: z.string().max(50) })
     .strict(),
+  DOCUMENT_CREDITS_ACQUIRED: z
+    .object({
+      packCode: z.string().trim().min(1).max(50),
+      credits: z.number().int().positive(),
+      betaPrice: z.string().regex(/^\d+(\.\d{1,4})?$/),
+      currency: z.string().length(3),
+    })
+    .strict(),
   MEMBER_INVITED: z
     .object({ invitedEmail: emailSchema, role: roleSchema })
     .strict(),

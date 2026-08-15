@@ -51,10 +51,13 @@ export default async function SettingsPage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 id="plan-storage-heading" className="text-xl font-bold text-text">Plan & Storage</h2>
-            <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">Review the beta plan, member capacity, and issued-document storage limits.</p>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">Review the beta plan, member capacity, monthly allowance, and carry-forward document credits.</p>
           </div>
           {data.canViewSubscription ? (
-            <Link href="/app/settings/plan" className="min-h-11 shrink-0 rounded-lg bg-civ-blue px-4 py-3 text-center text-sm font-semibold text-white hover:bg-civ-blue-hover">Open Plan & Storage</Link>
+            <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+              <Link href="/app/settings/plan" className="min-h-11 rounded-lg bg-civ-blue px-4 py-3 text-center text-sm font-semibold text-white hover:bg-civ-blue-hover">Open Plan & Storage</Link>
+              <Link href="/app/settings/credits" className="min-h-11 rounded-lg border border-civ-blue px-4 py-3 text-center text-sm font-semibold text-link hover:bg-hover">Document Credits</Link>
+            </div>
           ) : (
             <span className="text-sm text-muted">Available to Owners and Admins.</span>
           )}

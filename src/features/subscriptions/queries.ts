@@ -5,20 +5,24 @@ import {
   hasCapability,
 } from "@/features/authorization/capabilities";
 import { requirePageCapability } from "@/features/authorization/context";
+import { lockWorkspaceCommercialAccount } from "@/features/commercial/locking";
+import { ensureCurrentAllowancePeriod } from "@/features/commercial/periods";
 import { getWorkspaceMemberCapacityUsage } from "@/features/team/limits";
 import { db } from "@/lib/db";
 
 import { PlanConfigurationError } from "./errors";
-import { getIssuedDocumentUsage } from "./usage";
 import type { PlanOption } from "./types";
 import { betaPlanCodeSchema } from "./validation";
-
-const planOrder = ["FREE", "STARTER", "BUSINESS", "PRO", "ENTERPRISE"];
 
 export async function getPlanSettingsPageData() {
   const context = await requirePageCapability(CAPABILITIES.VIEW_SUBSCRIPTION);
   const data = await db.$transaction(async (transaction) => {
-    const [subscription, plans, memberUsage, issuedDocuments] =
+    await lockWorkspaceCommercialAccount(transaction, context.workspace.id);
+    const allowancePeriod = await ensureCurrentAllowancePeriod(
+      transaction,
+      context.workspace.id,
+    );
+    const [subscription, plans, memberUsage] =
       await Promise.all([
         transaction.subscription.findUnique({
           where: { workspaceId: context.workspace.id },
@@ -38,7 +42,11 @@ export async function getPlanSettingsPageData() {
           },
         }),
         transaction.plan.findMany({
-          where: { isActive: true, isPublic: true },
+          where: {
+            isActive: true,
+            isPublic: true,
+            isAvailableForNewWorkspaces: true,
+          },
           select: {
             code: true,
             name: true,
@@ -47,13 +55,14 @@ export async function getPlanSettingsPageData() {
             currency: true,
             memberLimit: true,
             documentLimit: true,
+            sortOrder: true,
           },
+          orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
         }),
         getWorkspaceMemberCapacityUsage(transaction, context.workspace.id),
-        getIssuedDocumentUsage(transaction, context.workspace.id),
       ]);
 
-    return { subscription, plans, memberUsage, issuedDocuments };
+    return { subscription, plans, memberUsage, allowancePeriod };
   });
 
   if (!data.subscription) throw new PlanConfigurationError();
@@ -63,13 +72,16 @@ export async function getPlanSettingsPageData() {
       const code = betaPlanCodeSchema.safeParse(plan.code);
       if (!code.success) return null;
       return {
-        ...plan,
         code: code.data,
+        name: plan.name,
+        description: plan.description,
         betaPrice: plan.betaPrice.toString(),
+        currency: plan.currency,
+        memberLimit: plan.memberLimit,
+        documentLimit: plan.documentLimit,
       };
     })
-    .filter((plan): plan is PlanOption => plan !== null)
-    .sort((left, right) => planOrder.indexOf(left.code) - planOrder.indexOf(right.code));
+    .filter((plan): plan is PlanOption => plan !== null);
 
   return {
     workspace: context.workspace,
@@ -81,7 +93,7 @@ export async function getPlanSettingsPageData() {
     plans,
     usage: {
       ...data.memberUsage,
-      issuedDocuments: data.issuedDocuments,
+      issuedDocuments: data.allowancePeriod.used,
     },
     canManageSubscription: hasCapability(
       context.membership,

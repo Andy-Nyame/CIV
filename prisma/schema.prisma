@@ -96,27 +96,44 @@ enum PlatformInvitationStatus {
   REVOKED
 }
 
+enum DocumentCreditPurchaseStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum DocumentCreditTransactionType {
+  PURCHASE
+  USAGE
+  ADMIN_ADJUSTMENT
+  REFUND
+  BONUS
+}
+
 model User {
-  id                      String               @id @default(uuid()) @db.Uuid
-  name                    String?              @db.VarChar(200)
-  email                   String?              @unique @db.VarChar(320)
-  emailVerified           DateTime?            @db.Timestamptz(3)
-  image                   String?              @db.Text
-  passwordHash            String?              @db.Text
-  passwordChangedAt       DateTime?            @db.Timestamptz(3)
-  createdAt               DateTime             @default(now()) @db.Timestamptz(3)
-  updatedAt               DateTime             @updatedAt @db.Timestamptz(3)
-  accounts                Account[]
-  sessions                Session[]
-  memberships             Membership[]
-  platformMembership      PlatformMembership?
-  sentPlatformInvitations PlatformInvitation[] @relation("PlatformInvitationInviter")
-  platformAuditEvents     PlatformAuditEvent[] @relation("PlatformAuditActor")
-  profilePhoto            ProfilePhoto?
-  signatureProfile        SignatureProfile?
-  sentInvitations         Invitation[]         @relation("InvitationInviter")
-  createdDocuments        Document[]           @relation("DocumentCreator")
-  auditEvents             AuditEvent[]         @relation("AuditActor")
+  id                         String                      @id @default(uuid()) @db.Uuid
+  name                       String?                     @db.VarChar(200)
+  email                      String?                     @unique @db.VarChar(320)
+  emailVerified              DateTime?                   @db.Timestamptz(3)
+  image                      String?                     @db.Text
+  passwordHash               String?                     @db.Text
+  passwordChangedAt          DateTime?                   @db.Timestamptz(3)
+  createdAt                  DateTime                    @default(now()) @db.Timestamptz(3)
+  updatedAt                  DateTime                    @updatedAt @db.Timestamptz(3)
+  accounts                   Account[]
+  sessions                   Session[]
+  memberships                Membership[]
+  platformMembership         PlatformMembership?
+  sentPlatformInvitations    PlatformInvitation[]        @relation("PlatformInvitationInviter")
+  platformAuditEvents        PlatformAuditEvent[]        @relation("PlatformAuditActor")
+  documentCreditPurchases    DocumentCreditPurchase[]    @relation("DocumentCreditPurchaseActor")
+  documentCreditTransactions DocumentCreditTransaction[] @relation("DocumentCreditTransactionActor")
+  profilePhoto               ProfilePhoto?
+  signatureProfile           SignatureProfile?
+  sentInvitations            Invitation[]                @relation("InvitationInviter")
+  createdDocuments           Document[]                  @relation("DocumentCreator")
+  auditEvents                AuditEvent[]                @relation("AuditActor")
 
   @@index([createdAt])
 }
@@ -237,29 +254,32 @@ model VerificationToken {
 }
 
 model Workspace {
-  id                 String         @id @default(uuid()) @db.Uuid
-  name               String         @db.VarChar(200)
-  type               WorkspaceType
-  country            String         @default("GH") @db.Char(2)
-  currency           String         @default("GHS") @db.Char(3)
-  email              String?        @db.VarChar(320)
-  phone              String?        @db.VarChar(50)
-  address            String?        @db.Text
-  registrationNumber String?        @db.VarChar(100)
-  businessTin        String?        @db.VarChar(100)
-  createdAt          DateTime       @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime       @updatedAt @db.Timestamptz(3)
-  archivedAt         DateTime?      @db.Timestamptz(3)
-  logo               WorkspaceLogo?
-  memberships        Membership[]
-  invitations        Invitation[]
-  customers          Customer[]
-  catalogItems       ItemService[]
-  customRates        CustomRate[]
-  documents          Document[]
-  files              DocumentFile[]
-  auditEvents        AuditEvent[]
-  subscription       Subscription?
+  id                         String                             @id @default(uuid()) @db.Uuid
+  name                       String                             @db.VarChar(200)
+  type                       WorkspaceType
+  country                    String                             @default("GH") @db.Char(2)
+  currency                   String                             @default("GHS") @db.Char(3)
+  email                      String?                            @db.VarChar(320)
+  phone                      String?                            @db.VarChar(50)
+  address                    String?                            @db.Text
+  registrationNumber         String?                            @db.VarChar(100)
+  businessTin                String?                            @db.VarChar(100)
+  createdAt                  DateTime                           @default(now()) @db.Timestamptz(3)
+  updatedAt                  DateTime                           @updatedAt @db.Timestamptz(3)
+  archivedAt                 DateTime?                          @db.Timestamptz(3)
+  logo                       WorkspaceLogo?
+  memberships                Membership[]
+  invitations                Invitation[]
+  customers                  Customer[]
+  catalogItems               ItemService[]
+  customRates                CustomRate[]
+  documents                  Document[]
+  files                      DocumentFile[]
+  auditEvents                AuditEvent[]
+  subscription               Subscription?
+  documentCreditPurchases    DocumentCreditPurchase[]
+  documentCreditTransactions DocumentCreditTransaction[]
+  documentAllowancePeriods   WorkspaceDocumentAllowancePeriod[]
 
   @@index([type])
   @@index([archivedAt])
@@ -521,22 +541,26 @@ model AuditEvent {
 }
 
 model Plan {
-  id            String         @id @default(uuid()) @db.Uuid
-  code          String         @unique @db.VarChar(50)
-  name          String         @db.VarChar(100)
-  description   String?        @db.Text
-  betaPrice     Decimal        @default(0) @db.Decimal(19, 4)
-  currency      String         @default("GHS") @db.VarChar(3)
-  documentLimit Int?
-  memberLimit   Int?
-  isPublic      Boolean        @default(true)
-  isActive      Boolean        @default(true)
-  features      Json           @default("{}")
-  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime       @updatedAt @db.Timestamptz(3)
-  subscriptions Subscription[]
+  id                          String                             @id @default(uuid()) @db.Uuid
+  code                        String                             @unique @db.VarChar(50)
+  name                        String                             @db.VarChar(100)
+  description                 String?                            @db.Text
+  betaPrice                   Decimal                            @default(0) @db.Decimal(19, 4)
+  currency                    String                             @default("GHS") @db.VarChar(3)
+  documentLimit               Int?
+  memberLimit                 Int?
+  isPublic                    Boolean                            @default(true)
+  isActive                    Boolean                            @default(true)
+  isAvailableForNewWorkspaces Boolean                            @default(true)
+  sortOrder                   Int                                @default(0)
+  features                    Json                               @default("{}")
+  createdAt                   DateTime                           @default(now()) @db.Timestamptz(3)
+  updatedAt                   DateTime                           @updatedAt @db.Timestamptz(3)
+  subscriptions               Subscription[]
+  allowancePeriods            WorkspaceDocumentAllowancePeriod[]
 
-  @@index([isPublic, isActive])
+  @@index([isPublic, isActive, isAvailableForNewWorkspaces])
+  @@index([sortOrder, code])
 }
 
 model Subscription {
@@ -553,4 +577,88 @@ model Subscription {
 
   @@index([planId])
   @@index([status])
+}
+
+model DocumentCreditPack {
+  id           String                      @id @default(uuid()) @db.Uuid
+  code         String                      @unique @db.VarChar(50)
+  name         String                      @db.VarChar(100)
+  description  String?                     @db.Text
+  creditAmount Int
+  price        Decimal                     @default(0) @db.Decimal(19, 4)
+  currency     String                      @default("GHS") @db.Char(3)
+  isActive     Boolean                     @default(true)
+  isPublic     Boolean                     @default(true)
+  sortOrder    Int                         @default(0)
+  createdAt    DateTime                    @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime                    @updatedAt @db.Timestamptz(3)
+  purchases    DocumentCreditPurchase[]
+  transactions DocumentCreditTransaction[]
+
+  @@index([isPublic, isActive, sortOrder])
+}
+
+model DocumentCreditPurchase {
+  id                       String                       @id @default(uuid()) @db.Uuid
+  workspaceId              String                       @db.Uuid
+  packId                   String                       @db.Uuid
+  actorUserId              String?                      @db.Uuid
+  status                   DocumentCreditPurchaseStatus @default(PENDING)
+  betaAcquisition          Boolean                      @default(false)
+  creditAmountSnapshot     Int
+  priceSnapshot            Decimal                      @db.Decimal(19, 4)
+  currencySnapshot         String                       @db.Char(3)
+  externalPaymentReference String?                      @unique @db.VarChar(255)
+  createdAt                DateTime                     @default(now()) @db.Timestamptz(3)
+  completedAt              DateTime?                    @db.Timestamptz(3)
+  workspace                Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  pack                     DocumentCreditPack           @relation(fields: [packId], references: [id], onDelete: Restrict)
+  actor                    User?                        @relation("DocumentCreditPurchaseActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  ledgerEntry              DocumentCreditTransaction?
+
+  @@unique([workspaceId, packId], map: "DocumentCreditPurchase_beta_workspace_pack_key", where: { betaAcquisition: true })
+  @@index([workspaceId, status, createdAt])
+  @@index([packId, status])
+  @@index([actorUserId])
+}
+
+model DocumentCreditTransaction {
+  id              String                        @id @default(uuid()) @db.Uuid
+  workspaceId     String                        @db.Uuid
+  type            DocumentCreditTransactionType
+  amount          Int
+  source          String                        @db.VarChar(100)
+  sourceReference String                        @unique @db.VarChar(255)
+  packId          String?                       @db.Uuid
+  purchaseId      String?                       @unique @db.Uuid
+  actorUserId     String?                       @db.Uuid
+  metadata        Json?
+  createdAt       DateTime                      @default(now()) @db.Timestamptz(3)
+  workspace       Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  pack            DocumentCreditPack?           @relation(fields: [packId], references: [id], onDelete: Restrict)
+  purchase        DocumentCreditPurchase?       @relation(fields: [purchaseId], references: [id], onDelete: Restrict)
+  actor           User?                         @relation("DocumentCreditTransactionActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, type])
+  @@index([packId])
+  @@index([actorUserId])
+}
+
+model WorkspaceDocumentAllowancePeriod {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid
+  planId      String    @db.Uuid
+  periodStart DateTime  @db.Timestamptz(3)
+  periodEnd   DateTime  @db.Timestamptz(3)
+  allowance   Int?
+  used        Int       @default(0)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  plan        Plan      @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@unique([workspaceId, periodStart])
+  @@index([workspaceId, periodEnd])
+  @@index([planId])
 }

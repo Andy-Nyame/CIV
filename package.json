@@ -20,6 +20,8 @@
     "test:workspaces": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test src/features/workspaces/*.test.ts",
     "test:platform": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test --test-concurrency=1 src/features/platform-admin/*.test.ts src/features/platform-team/*.test.ts",
     "test:platform:http": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-platform-admin-route.ts",
+    "test:commercial": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test --test-concurrency=1 src/features/commercial/*.test.ts",
+    "test:commercial:http": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-commercial-routes.ts",
     "storage:check:r2": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-r2-connectivity.ts",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",

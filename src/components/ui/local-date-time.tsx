@@ -1,10 +1,18 @@
 "use client";
 
-export function LocalDateTime({ value }: { value: string }) {
-  const label = new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+export function LocalDateTime({
+  value,
+  dateOnly = false,
+}: {
+  value: string;
+  dateOnly?: boolean;
+}) {
+  const label = new Intl.DateTimeFormat(
+    undefined,
+    dateOnly
+      ? { dateStyle: "medium" }
+      : { dateStyle: "medium", timeStyle: "short" },
+  ).format(new Date(value));
 
   return (
     <time dateTime={value} suppressHydrationWarning>
