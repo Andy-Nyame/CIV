@@ -64,5 +64,5 @@ export async function bootstrapDevelopmentPlatformOwner(input: {
     }
 
     return membership;
-  });
+  }, { maxWait: 10_000, timeout: 20_000 });
 }
