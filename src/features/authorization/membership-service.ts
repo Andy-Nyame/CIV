@@ -2,6 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 
+import { recordAuditEvent } from "@/features/audit/service";
 import { requireTeamManagerInTransaction } from "@/features/team/authorization";
 import { MemberLimitError } from "@/features/team/errors";
 import {
@@ -48,6 +49,68 @@ const teamMembershipMutationSchema = z
 export type MembershipMutationInput = z.infer<
   typeof membershipMutationSchema
 >;
+
+type MembershipAuditTarget = {
+  id: string;
+  role: MembershipRole;
+  status: MembershipStatus;
+  user: { name: string | null; email: string | null };
+};
+
+async function recordMembershipMutationAuditEvents(
+  transaction: Prisma.TransactionClient,
+  input: {
+    actorUserId: string;
+    workspaceId: string;
+    before: MembershipAuditTarget;
+    after: Pick<MembershipAuditTarget, "id" | "role" | "status">;
+  },
+) {
+  const memberDisplayName =
+    input.before.user.name?.trim() ||
+    input.before.user.email ||
+    "Workspace member";
+
+  if (input.before.role !== input.after.role) {
+    await recordAuditEvent(transaction, {
+      workspaceId: input.workspaceId,
+      actorUserId: input.actorUserId,
+      action: "MEMBER_ROLE_CHANGED",
+      resourceType: "MEMBERSHIP",
+      resourceId: input.after.id,
+      metadata: {
+        memberDisplayName,
+        fromRole: input.before.role,
+        toRole: input.after.role,
+      },
+    });
+  }
+
+  if (input.before.status === input.after.status) return;
+
+  const action =
+    input.after.status === MembershipStatus.SUSPENDED
+      ? "MEMBER_SUSPENDED"
+      : input.after.status === MembershipStatus.REMOVED
+        ? "MEMBER_REMOVED"
+        : input.after.status === MembershipStatus.ACTIVE
+          ? "MEMBER_REACTIVATED"
+          : null;
+
+  if (!action) return;
+
+  await recordAuditEvent(transaction, {
+    workspaceId: input.workspaceId,
+    actorUserId: input.actorUserId,
+    action,
+    resourceType: "MEMBERSHIP",
+    resourceId: input.after.id,
+    metadata: {
+      memberDisplayName,
+      role: input.after.role,
+    },
+  });
+}
 
 export async function updateWorkspaceMembership(input: unknown) {
   const result = membershipMutationSchema.safeParse(input);
@@ -97,6 +160,7 @@ export async function updateWorkspaceMembership(input: unknown) {
         id: true,
         role: true,
         status: true,
+        user: { select: { name: true, email: true } },
       },
     });
 
@@ -131,7 +195,7 @@ export async function updateWorkspaceMembership(input: unknown) {
       data.status = mutation.status;
     }
 
-    return transaction.membership.update({
+    const updated = await transaction.membership.update({
       where: { id: target.id },
       data,
       select: {
@@ -140,6 +204,15 @@ export async function updateWorkspaceMembership(input: unknown) {
         status: true,
       },
     });
+
+    await recordMembershipMutationAuditEvents(transaction, {
+      actorUserId: mutation.actorUserId,
+      workspaceId: mutation.workspaceId,
+      before: target,
+      after: updated,
+    });
+
+    return updated;
   }, teamTransactionOptions);
 }
 
@@ -160,7 +233,12 @@ export async function manageWorkspaceMember(input: unknown) {
         id: mutation.targetMembershipId,
         workspaceId: mutation.workspaceId,
       },
-      select: { id: true, role: true, status: true },
+      select: {
+        id: true,
+        role: true,
+        status: true,
+        user: { select: { name: true, email: true } },
+      },
     });
 
     if (!target) throw new WorkspaceAuthorizationError();
@@ -195,11 +273,20 @@ export async function manageWorkspaceMember(input: unknown) {
     if (mutation.role !== undefined) data.role = mutation.role;
     if (mutation.status !== undefined) data.status = mutation.status;
 
-    return transaction.membership.update({
+    const updated = await transaction.membership.update({
       where: { id: target.id },
       data,
       select: { id: true, role: true, status: true },
     });
+
+    await recordMembershipMutationAuditEvents(transaction, {
+      actorUserId: mutation.actorUserId,
+      workspaceId: mutation.workspaceId,
+      before: target,
+      after: updated,
+    });
+
+    return updated;
   }, teamTransactionOptions);
 }
 

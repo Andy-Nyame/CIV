@@ -28,6 +28,10 @@ export default async function CivAppLayout({ children }: LayoutProps<"/app">) {
         workspaceContext.current,
         CAPABILITIES.VIEW_TEAM,
       )}
+      canViewActivity={hasCapability(
+        workspaceContext.current,
+        CAPABILITIES.VIEW_AUDIT_LOG,
+      )}
     >
       {children}
     </AppShell>

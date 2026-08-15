@@ -20,11 +20,13 @@ type AppShellProps = {
   };
   workspaceContext: WorkspaceContext;
   canViewTeam: boolean;
+  canViewActivity: boolean;
   privateProfilePhotoUrl: string | null;
 };
 
 export function AppShell({
   canViewTeam,
+  canViewActivity,
   children,
   user,
   workspaceContext,
@@ -76,7 +78,10 @@ export function AppShell({
           <CreateDocumentMenu />
         </div>
         <div className="mt-6">
-          <AppNavigation canViewTeam={canViewTeam} />
+          <AppNavigation
+            canViewActivity={canViewActivity}
+            canViewTeam={canViewTeam}
+          />
         </div>
         <div className="mt-auto grid gap-4 border-t border-border pt-5">
           <ThemeControl />
@@ -142,6 +147,7 @@ export function AppShell({
               <WorkspaceSwitcher workspaceContext={workspaceContext} />
               <CreateDocumentMenu />
               <AppNavigation
+                canViewActivity={canViewActivity}
                 canViewTeam={canViewTeam}
                 onNavigate={() => setMobileNavigationOpen(false)}
               />

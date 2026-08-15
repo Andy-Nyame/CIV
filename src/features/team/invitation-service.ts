@@ -1,5 +1,6 @@
 import "server-only";
 
+import { recordAuditEvent } from "@/features/audit/service";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 
@@ -103,7 +104,7 @@ export async function createInvitation({
 
       await assertInvitationCapacity(transaction, workspaceId, now);
 
-      return transaction.invitation.create({
+      const invitation = await transaction.invitation.create({
         data: {
           workspaceId,
           email: result.data.email,
@@ -119,6 +120,20 @@ export async function createInvitation({
           expiresAt: true,
         },
       });
+
+      await recordAuditEvent(transaction, {
+        workspaceId,
+        actorUserId,
+        action: "MEMBER_INVITED",
+        resourceType: "INVITATION",
+        resourceId: invitation.id,
+        metadata: {
+          invitedEmail: invitation.email,
+          role: invitation.role,
+        },
+      });
+
+      return invitation;
     }, teamTransactionOptions);
 
     return { ...invitation, token };
@@ -159,16 +174,30 @@ export async function cancelInvitation({
         workspaceId,
         status: "PENDING",
       },
-      select: { id: true },
+      select: { id: true, email: true, role: true },
     });
 
     if (!invitation) throw new InvitationUnavailableError("INVALID");
 
-    return transaction.invitation.update({
+    const cancelled = await transaction.invitation.update({
       where: { id: invitation.id },
       data: { status: "REVOKED", revokedAt: new Date() },
       select: { id: true },
     });
+
+    await recordAuditEvent(transaction, {
+      workspaceId,
+      actorUserId,
+      action: "INVITATION_CANCELLED",
+      resourceType: "INVITATION",
+      resourceId: invitation.id,
+      metadata: {
+        invitedEmail: invitation.email,
+        role: invitation.role,
+      },
+    });
+
+    return cancelled;
   }, teamTransactionOptions);
 }
 
@@ -199,16 +228,30 @@ export async function renewInvitation({
         workspaceId,
         status: "PENDING",
       },
-      select: { id: true },
+      select: { id: true, email: true, role: true },
     });
 
     if (!existing) throw new InvitationUnavailableError("INVALID");
 
-    return transaction.invitation.update({
+    const renewed = await transaction.invitation.update({
       where: { id: existing.id },
       data: { tokenHash, expiresAt, revokedAt: null },
       select: { id: true, email: true, role: true, expiresAt: true },
     });
+
+    await recordAuditEvent(transaction, {
+      workspaceId,
+      actorUserId,
+      action: "INVITATION_RENEWED",
+      resourceType: "INVITATION",
+      resourceId: existing.id,
+      metadata: {
+        invitedEmail: existing.email,
+        role: existing.role,
+      },
+    });
+
+    return renewed;
   }, teamTransactionOptions);
 
   return { ...invitation, token };
@@ -325,6 +368,18 @@ export async function acceptInvitation({
       where: { id: invitation.id },
       data: { status: "ACCEPTED", acceptedAt: new Date() },
       select: { id: true },
+    });
+
+    await recordAuditEvent(transaction, {
+      workspaceId: invitation.workspaceId,
+      actorUserId: userId,
+      action: "INVITATION_ACCEPTED",
+      resourceType: "INVITATION",
+      resourceId: invitation.id,
+      metadata: {
+        invitedEmail: invitation.email,
+        role: invitation.role,
+      },
     });
 
     return membership;

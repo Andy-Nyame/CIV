@@ -1,0 +1,120 @@
+import type { Prisma } from "@/generated/prisma/client";
+
+import { isAuditAction, type AuditAction } from "./registry";
+
+type PresentableAuditEvent = {
+  action: string;
+  metadata: Prisma.JsonValue | null;
+  actor: { name: string | null; email: string | null } | null;
+};
+
+const actionLabels: Record<AuditAction, string> = {
+  WORKSPACE_CREATED: "Workspace created",
+  WORKSPACE_UPDATED: "Workspace updated",
+  WORKSPACE_PLAN_CHANGED: "Plan changed",
+  MEMBER_INVITED: "Member invited",
+  INVITATION_CANCELLED: "Invitation cancelled",
+  INVITATION_RENEWED: "Invitation renewed",
+  INVITATION_ACCEPTED: "Invitation accepted",
+  MEMBER_ROLE_CHANGED: "Member role changed",
+  MEMBER_SUSPENDED: "Member suspended",
+  MEMBER_REACTIVATED: "Member reactivated",
+  MEMBER_REMOVED: "Member removed",
+  DOCUMENT_CREATED: "Document created",
+  DOCUMENT_ISSUED: "Document issued",
+  DOCUMENT_VOIDED: "Document voided",
+  DOCUMENT_STATUS_CHANGED: "Document status changed",
+  CUSTOMER_CREATED: "Customer created",
+  CUSTOMER_UPDATED: "Customer updated",
+  ITEM_CREATED: "Item created",
+  ITEM_UPDATED: "Item updated",
+  RATE_CREATED: "Rate created",
+  RATE_UPDATED: "Rate updated",
+};
+
+function metadataObject(metadata: Prisma.JsonValue | null) {
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? metadata
+    : {};
+}
+
+function metadataText(
+  metadata: ReturnType<typeof metadataObject>,
+  key: string,
+  fallback: string,
+) {
+  const value = metadata[key];
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function enumLabel(value: string) {
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+export function presentAuditEvent(event: PresentableAuditEvent) {
+  const metadata = metadataObject(event.metadata);
+  const actor =
+    event.actor?.name?.trim() ||
+    event.actor?.email ||
+    metadataText(metadata, "actorDisplayName", "A former workspace member");
+  const action = isAuditAction(event.action) ? event.action : null;
+  const label = action ? actionLabels[action] : "Workspace activity";
+  const invitedEmail = metadataText(metadata, "invitedEmail", "a team member");
+  const member = metadataText(metadata, "memberDisplayName", "a team member");
+  const role = enumLabel(metadataText(metadata, "role", "member"));
+
+  const summary = (() => {
+    switch (action) {
+      case "WORKSPACE_CREATED":
+        return `${actor} created this ${enumLabel(metadataText(metadata, "workspaceType", "workspace"))} workspace on the ${enumLabel(metadataText(metadata, "initialPlan", "Free"))} plan.`;
+      case "WORKSPACE_UPDATED":
+        return `${actor} updated this workspace.`;
+      case "WORKSPACE_PLAN_CHANGED":
+        return `${actor} switched this workspace from ${enumLabel(metadataText(metadata, "fromPlan", "a previous plan"))} to ${enumLabel(metadataText(metadata, "toPlan", "a new plan"))}.`;
+      case "MEMBER_INVITED":
+        return `${actor} invited ${invitedEmail} as ${role}.`;
+      case "INVITATION_CANCELLED":
+        return `${actor} cancelled the invitation for ${invitedEmail}.`;
+      case "INVITATION_RENEWED":
+        return `${actor} generated a new invitation link for ${invitedEmail}.`;
+      case "INVITATION_ACCEPTED":
+        return `${actor} accepted an invitation to this workspace as ${role}.`;
+      case "MEMBER_ROLE_CHANGED":
+        return `${actor} changed ${member}’s role from ${enumLabel(metadataText(metadata, "fromRole", "a previous role"))} to ${enumLabel(metadataText(metadata, "toRole", "a new role"))}.`;
+      case "MEMBER_SUSPENDED":
+        return `${actor} suspended ${member}.`;
+      case "MEMBER_REACTIVATED":
+        return `${actor} reactivated ${member}.`;
+      case "MEMBER_REMOVED":
+        return `${actor} removed ${member} from this workspace.`;
+      case "DOCUMENT_CREATED":
+        return `${actor} created a document.`;
+      case "DOCUMENT_ISSUED":
+        return `${actor} issued a document.`;
+      case "DOCUMENT_VOIDED":
+        return `${actor} voided a document.`;
+      case "DOCUMENT_STATUS_CHANGED":
+        return `${actor} changed a document’s status.`;
+      case "CUSTOMER_CREATED":
+        return `${actor} created a customer.`;
+      case "CUSTOMER_UPDATED":
+        return `${actor} updated a customer.`;
+      case "ITEM_CREATED":
+        return `${actor} created a catalogue item.`;
+      case "ITEM_UPDATED":
+        return `${actor} updated a catalogue item.`;
+      case "RATE_CREATED":
+        return `${actor} created a rate.`;
+      case "RATE_UPDATED":
+        return `${actor} updated a rate.`;
+      default:
+        return `${actor} performed an important workspace action.`;
+    }
+  })();
+
+  return { label, summary };
+}

@@ -10,5 +10,10 @@ export const appNavigation = [
     href: "/app/team",
     requiredCapability: CAPABILITIES.VIEW_TEAM,
   },
+  {
+    label: "Activity",
+    href: "/app/activity",
+    requiredCapability: CAPABILITIES.VIEW_AUDIT_LOG,
+  },
   { label: "Settings", href: "/app/settings" },
 ] as const;

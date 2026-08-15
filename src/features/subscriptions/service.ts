@@ -1,5 +1,6 @@
 import "server-only";
 
+import { recordAuditEvent } from "@/features/audit/service";
 import { WorkspaceAuthorizationError } from "@/features/authorization/errors";
 import {
   getWorkspaceMemberCapacityUsage,
@@ -111,11 +112,27 @@ export async function changeWorkspacePlan(input: ChangeWorkspacePlanInput) {
       },
     });
 
+    const changed = subscription.plan.code !== updated.plan.code;
+
+    if (changed) {
+      await recordAuditEvent(transaction, {
+        workspaceId: input.workspaceId,
+        actorUserId: input.actorUserId,
+        action: "WORKSPACE_PLAN_CHANGED",
+        resourceType: "SUBSCRIPTION",
+        resourceId: subscription.id,
+        metadata: {
+          fromPlan: subscription.plan.code,
+          toPlan: updated.plan.code,
+        },
+      });
+    }
+
     return {
       ...updated,
       previousPlanCode: subscription.plan.code,
       previousPlanName: subscription.plan.name,
-      changed: subscription.plan.code !== updated.plan.code,
+      changed,
     };
   }, teamTransactionOptions);
 }

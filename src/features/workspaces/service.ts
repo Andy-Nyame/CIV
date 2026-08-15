@@ -5,6 +5,7 @@ import {
   MembershipStatus,
   SubscriptionStatus,
 } from "@/generated/prisma/client";
+import { recordAuditEvent } from "@/features/audit/service";
 import { db } from "@/lib/db";
 
 import { workspaceInputSchema } from "./validation";
@@ -79,6 +80,18 @@ export async function createWorkspace({
         workspaceId: workspace.id,
         planId: freePlan.id,
         status: SubscriptionStatus.BETA,
+      },
+    });
+
+    await recordAuditEvent(transaction, {
+      workspaceId: workspace.id,
+      actorUserId: userId,
+      action: "WORKSPACE_CREATED",
+      resourceType: "WORKSPACE",
+      resourceId: workspace.id,
+      metadata: {
+        workspaceType: workspace.type,
+        initialPlan: "FREE",
       },
     });
 

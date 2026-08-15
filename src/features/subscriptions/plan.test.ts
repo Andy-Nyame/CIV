@@ -293,6 +293,7 @@ test("beta plan switching, downgrade safety, isolation, and invitation limits", 
     });
   } finally {
     if (workspaceIds.length > 0) {
+      await db.auditEvent.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
       await db.invitation.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
       await db.documentFile.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
       await db.documentLine.deleteMany({

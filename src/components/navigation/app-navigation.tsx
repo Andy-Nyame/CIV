@@ -6,16 +6,21 @@ import { usePathname } from "next/navigation";
 import { appNavigation } from "@/lib/navigation";
 
 export function AppNavigation({
+  canViewActivity,
   canViewTeam,
   onNavigate,
 }: {
+  canViewActivity: boolean;
   canViewTeam: boolean;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
-  const visibleNavigation = appNavigation.filter(
-    (item) => !("requiredCapability" in item) || canViewTeam,
-  );
+  const visibleNavigation = appNavigation.filter((item) => {
+    if (!("requiredCapability" in item)) return true;
+    if (item.requiredCapability === "VIEW_TEAM") return canViewTeam;
+    if (item.requiredCapability === "VIEW_AUDIT_LOG") return canViewActivity;
+    return false;
+  });
 
   return (
     <nav aria-label="Main navigation">
