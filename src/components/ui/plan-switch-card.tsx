@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from "react";
 
+import { RecurringCheckoutControl } from "@/components/ui/recurring-subscription-controls";
 import { changeWorkspacePlanAction } from "@/features/subscriptions/actions";
 import {
   initialPlanFormState,
@@ -14,6 +15,14 @@ function formatLimit(limit: number | null) {
 
 function formatBetaPrice(plan: Pick<PlanOption, "betaPrice" | "currency">) {
   const amount = Number(plan.betaPrice).toLocaleString("en-GH", {
+    maximumFractionDigits: 2,
+  });
+  return plan.currency === "GHS" ? `GH₵${amount}` : `${plan.currency} ${amount}`;
+}
+
+function formatMonthlyPrice(plan: Pick<PlanOption, "monthlyPrice" | "currency">) {
+  const amount = Number(plan.monthlyPrice).toLocaleString("en-GH", {
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
   return plan.currency === "GHS" ? `GH₵${amount}` : `${plan.currency} ${amount}`;
@@ -45,7 +54,11 @@ export function PlanSwitchCard({
         <div>
           <h2 className="text-lg font-bold text-text">{plan.name}</h2>
           <p className="mt-1 text-sm font-semibold text-link">
-            {formatBetaPrice(plan)} during beta
+            {plan.billingMode === "RECURRING"
+              ? `${formatMonthlyPrice(plan)} / month · Test Mode`
+              : plan.billingMode === "CUSTOM"
+                ? "Custom terms"
+                : `${formatBetaPrice(plan)} · no recurring payment`}
           </p>
         </div>
         {current ? (
@@ -69,13 +82,21 @@ export function PlanSwitchCard({
           <dd className="font-semibold text-text">{formatLimit(plan.documentLimit)}</dd>
         </div>
         <div className="flex justify-between gap-4">
-          <dt className="text-muted">Beta price</dt>
-          <dd className="font-semibold text-text">{formatBetaPrice(plan)}</dd>
+          <dt className="text-muted">Billing</dt>
+          <dd className="text-right font-semibold text-text">{plan.billingMode === "RECURRING" ? "Monthly card" : plan.billingMode === "CUSTOM" ? "Contact CIV" : "Non-billable"}</dd>
         </div>
       </dl>
 
       <div className="mt-auto pt-5">
-        {!current && canManage ? (
+        {!current && canManage && plan.billingMode === "RECURRING" ? (
+          plan.paystackPlanConfigured ? (
+            <RecurringCheckoutControl planCode={plan.code} planName={plan.name} priceLabel={formatMonthlyPrice(plan)} />
+          ) : (
+            <p className="text-sm text-muted">Recurring checkout is not configured for this plan yet.</p>
+          )
+        ) : !current && canManage && plan.billingMode === "CUSTOM" ? (
+          <p className="text-sm text-muted">This plan requires a custom CIV agreement and is not available for self-service checkout.</p>
+        ) : !current && canManage ? (
           confirming ? (
             <form action={action} className="grid gap-3">
               <input type="hidden" name="planCode" value={plan.code} />

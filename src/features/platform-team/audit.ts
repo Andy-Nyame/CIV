@@ -25,6 +25,10 @@ export const PLATFORM_AUDIT_ACTIONS = {
   PLATFORM_TRIAL_GRANTED: "PLATFORM_TRIAL_GRANTED",
   PLATFORM_TRIAL_CANCELLED: "PLATFORM_TRIAL_CANCELLED",
   PLATFORM_TRIAL_CONVERTED: "PLATFORM_TRIAL_CONVERTED",
+  PLATFORM_SUBSCRIPTION_STARTED: "PLATFORM_SUBSCRIPTION_STARTED",
+  PLATFORM_SUBSCRIPTION_RENEWED: "PLATFORM_SUBSCRIPTION_RENEWED",
+  PLATFORM_SUBSCRIPTION_PAYMENT_FAILED: "PLATFORM_SUBSCRIPTION_PAYMENT_FAILED",
+  PLATFORM_SUBSCRIPTION_CANCELLED: "PLATFORM_SUBSCRIPTION_CANCELLED",
 } as const;
 
 export type PlatformAuditAction =
@@ -37,6 +41,7 @@ export const PLATFORM_AUDIT_RESOURCE_TYPES = {
   DOCUMENT_CREDIT_PACK: "DOCUMENT_CREDIT_PACK",
   TRIAL_CONFIGURATION: "TRIAL_CONFIGURATION",
   WORKSPACE_TRIAL: "WORKSPACE_TRIAL",
+  SUBSCRIPTION: "SUBSCRIPTION",
 } as const;
 
 export type PlatformAuditResourceType =
@@ -75,7 +80,7 @@ export const platformAuditMetadataSchemas = {
     .object({ memberDisplayName: displayNameSchema, role: recruitablePlatformRoleSchema })
     .strict(),
   PLATFORM_PLAN_UPDATED: z
-    .object({ planCode: z.string().min(1).max(50), changedFields: z.array(z.string().min(1).max(50)).min(1).max(12) })
+    .object({ planCode: z.string().min(1).max(50), changedFields: z.array(z.string().min(1).max(50)).min(1).max(16) })
     .strict(),
   PLATFORM_CREDIT_PACK_CREATED: z
     .object({ packCode: z.string().min(1).max(50), credits: z.number().int().positive() })
@@ -100,6 +105,18 @@ export const platformAuditMetadataSchemas = {
     .strict(),
   PLATFORM_TRIAL_CONVERTED: z
     .object({ workspaceName: displayNameSchema, trialPlan: z.string().min(1).max(50) })
+    .strict(),
+  PLATFORM_SUBSCRIPTION_STARTED: z
+    .object({ workspaceName: displayNameSchema, planCode: z.string().min(1).max(50) })
+    .strict(),
+  PLATFORM_SUBSCRIPTION_RENEWED: z
+    .object({ workspaceName: displayNameSchema, planCode: z.string().min(1).max(50) })
+    .strict(),
+  PLATFORM_SUBSCRIPTION_PAYMENT_FAILED: z
+    .object({ workspaceName: displayNameSchema, planCode: z.string().min(1).max(50) })
+    .strict(),
+  PLATFORM_SUBSCRIPTION_CANCELLED: z
+    .object({ workspaceName: displayNameSchema, planCode: z.string().min(1).max(50) })
     .strict(),
 } as const;
 
@@ -126,6 +143,10 @@ const actionResource = {
   PLATFORM_TRIAL_GRANTED: "WORKSPACE_TRIAL",
   PLATFORM_TRIAL_CANCELLED: "WORKSPACE_TRIAL",
   PLATFORM_TRIAL_CONVERTED: "WORKSPACE_TRIAL",
+  PLATFORM_SUBSCRIPTION_STARTED: "SUBSCRIPTION",
+  PLATFORM_SUBSCRIPTION_RENEWED: "SUBSCRIPTION",
+  PLATFORM_SUBSCRIPTION_PAYMENT_FAILED: "SUBSCRIPTION",
+  PLATFORM_SUBSCRIPTION_CANCELLED: "SUBSCRIPTION",
 } as const satisfies Record<PlatformAuditAction, PlatformAuditResourceType>;
 
 type PlatformAuditMetadataByAction = {
@@ -223,6 +244,10 @@ export function platformAuditActionLabel(action: string) {
     PLATFORM_TRIAL_GRANTED: "Workspace trial granted",
     PLATFORM_TRIAL_CANCELLED: "Workspace trial cancelled",
     PLATFORM_TRIAL_CONVERTED: "Workspace trial converted",
+    PLATFORM_SUBSCRIPTION_STARTED: "Workspace subscription started",
+    PLATFORM_SUBSCRIPTION_RENEWED: "Workspace subscription renewed",
+    PLATFORM_SUBSCRIPTION_PAYMENT_FAILED: "Workspace subscription payment failed",
+    PLATFORM_SUBSCRIPTION_CANCELLED: "Workspace subscription cancelled",
   };
   return action in labels ? labels[action as PlatformAuditAction] : "Platform operation";
 }
@@ -292,6 +317,14 @@ export function platformAuditEventDescription(event: PlatformAuditDisplayEvent) 
       return `${actor} cancelled ${text(metadata.workspaceName, "a workspace")}'s ${text(metadata.trialPlan, "plan")} trial.`;
     case "PLATFORM_TRIAL_CONVERTED":
       return `${actor} converted ${text(metadata.workspaceName, "a workspace")}'s ${text(metadata.trialPlan, "plan")} trial.`;
+    case "PLATFORM_SUBSCRIPTION_STARTED":
+      return `${text(metadata.workspaceName, "A workspace")} started the ${text(metadata.planCode, "paid")} subscription.`;
+    case "PLATFORM_SUBSCRIPTION_RENEWED":
+      return `${text(metadata.workspaceName, "A workspace")} renewed the ${text(metadata.planCode, "paid")} subscription.`;
+    case "PLATFORM_SUBSCRIPTION_PAYMENT_FAILED":
+      return `${text(metadata.workspaceName, "A workspace")}'s ${text(metadata.planCode, "paid")} subscription payment failed.`;
+    case "PLATFORM_SUBSCRIPTION_CANCELLED":
+      return `${text(metadata.workspaceName, "A workspace")} ended the ${text(metadata.planCode, "paid")} subscription.`;
     default:
       return `${actor} completed a platform operation.`;
   }

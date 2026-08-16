@@ -44,6 +44,8 @@ export async function changeWorkspacePlan(input: ChangeWorkspacePlanInput) {
         where: { workspaceId: input.workspaceId },
         select: {
           id: true,
+          status: true,
+          providerSubscriptionCode: true,
           plan: { select: { code: true, name: true } },
         },
       }),
@@ -58,6 +60,7 @@ export async function changeWorkspacePlan(input: ChangeWorkspacePlanInput) {
           isActive: true,
           isPublic: true,
           isAvailableForNewWorkspaces: true,
+          billingMode: true,
         },
       }),
     ]);
@@ -68,6 +71,15 @@ export async function changeWorkspacePlan(input: ChangeWorkspacePlanInput) {
       !targetPlan.isPublic ||
       !targetPlan.isAvailableForNewWorkspaces
     ) {
+      throw new PlanConfigurationError();
+    }
+    if (
+      targetPlan.billingMode !== "FREE" ||
+      (subscription.status === "ACTIVE" &&
+        subscription.providerSubscriptionCode)
+    ) {
+      // Recurring plans require verified checkout; a paid subscription must be
+      // cancelled with Paystack before its fallback plan can take effect.
       throw new PlanConfigurationError();
     }
 

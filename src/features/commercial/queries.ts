@@ -33,7 +33,10 @@ export async function getPlatformPlanManagementData() {
       memberLimit: true,
       documentLimit: true,
       betaPrice: true,
+      monthlyPrice: true,
       currency: true,
+      billingMode: true,
+      paystackPlanCode: true,
       isActive: true,
       isPublic: true,
       isAvailableForNewWorkspaces: true,
@@ -42,9 +45,10 @@ export async function getPlatformPlanManagementData() {
     },
   });
   return {
-    plans: plans.map(({ betaPrice, _count, ...plan }) => ({
+    plans: plans.map(({ betaPrice, monthlyPrice, _count, ...plan }) => ({
       ...plan,
       betaPrice: betaPrice.toFixed(4),
+      monthlyPrice: monthlyPrice.toFixed(4),
       workspaces: _count.subscriptions,
     })),
     canManage: hasPlatformCapability(

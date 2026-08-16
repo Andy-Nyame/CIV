@@ -60,12 +60,15 @@ export async function resolveWorkspaceEntitlementsInTransaction(
   const now = options.now ?? new Date();
   if (options.lock !== false) await lockWorkspaceTrials(transaction, workspaceId);
 
-  const subscription = await transaction.subscription.findUnique({
+  let subscription = await transaction.subscription.findUnique({
     where: { workspaceId },
     select: {
       id: true,
       status: true,
       startedAt: true,
+      currentPeriodEnd: true,
+      cancelAtPeriodEnd: true,
+      fallbackPlanId: true,
       plan: {
         select: {
           id: true,
@@ -79,6 +82,42 @@ export async function resolveWorkspaceEntitlementsInTransaction(
     },
   });
   if (!subscription) throw new TrialConfigurationError();
+
+  if (
+    subscription.fallbackPlanId &&
+    subscription.currentPeriodEnd &&
+    subscription.currentPeriodEnd <= now &&
+    (subscription.cancelAtPeriodEnd || subscription.status === "PAST_DUE")
+  ) {
+    const recurring = await import("@/features/payments/recurring-subscriptions");
+    await recurring.applySubscriptionFallbackInTransaction(
+      transaction,
+      subscription.id,
+      now,
+    );
+    subscription = await transaction.subscription.findUnique({
+      where: { id: subscription.id },
+      select: {
+        id: true,
+        status: true,
+        startedAt: true,
+        currentPeriodEnd: true,
+        cancelAtPeriodEnd: true,
+        fallbackPlanId: true,
+        plan: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            memberLimit: true,
+            documentLimit: true,
+            features: true,
+          },
+        },
+      },
+    });
+    if (!subscription) throw new TrialConfigurationError();
+  }
 
   let activeTrial = await transaction.workspaceTrial.findFirst({
     where: { workspaceId, status: "ACTIVE" },

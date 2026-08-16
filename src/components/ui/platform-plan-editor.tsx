@@ -12,7 +12,10 @@ type EditablePlan = {
   memberLimit: number | null;
   documentLimit: number | null;
   betaPrice: string;
+  monthlyPrice: string;
   currency: string;
+  billingMode: "FREE" | "RECURRING" | "CUSTOM";
+  paystackPlanCode: string | null;
   isActive: boolean;
   isPublic: boolean;
   isAvailableForNewWorkspaces: boolean;
@@ -60,8 +63,22 @@ export function PlatformPlanEditor({
             <label className="grid gap-1.5 text-sm font-semibold text-text">Member limit<input name="memberLimit" type="number" min="1" defaultValue={plan.memberLimit ?? ""} placeholder="Custom" className="min-h-11 rounded-lg border border-border bg-surface px-3 font-normal" /></label>
             <label className="grid gap-1.5 text-sm font-semibold text-text">Monthly documents<input name="documentLimit" type="number" min="1" defaultValue={plan.documentLimit ?? ""} placeholder="Custom" className="min-h-11 rounded-lg border border-border bg-surface px-3 font-normal" /></label>
             <label className="grid gap-1.5 text-sm font-semibold text-text">Beta price<input name="betaPrice" inputMode="decimal" defaultValue={plan.betaPrice} className="min-h-11 rounded-lg border border-border bg-surface px-3 font-normal" /></label>
+            <label className="grid gap-1.5 text-sm font-semibold text-text">Monthly recurring price<input name="monthlyPrice" inputMode="decimal" defaultValue={plan.monthlyPrice} className="min-h-11 rounded-lg border border-border bg-surface px-3 font-normal" /></label>
             <label className="grid gap-1.5 text-sm font-semibold text-text">Currency<input name="currency" defaultValue={plan.currency} maxLength={3} className="min-h-11 rounded-lg border border-border bg-surface px-3 font-normal uppercase" /></label>
             <label className="grid gap-1.5 text-sm font-semibold text-text">Sort order<input name="sortOrder" type="number" min="0" defaultValue={plan.sortOrder} className="min-h-11 rounded-lg border border-border bg-surface px-3 font-normal" /></label>
+            <label className="grid gap-1.5 text-sm font-semibold text-text">
+              Billing mode
+              <select name="billingMode" defaultValue={plan.billingMode} className="min-h-11 rounded-lg border border-border bg-surface px-3 font-normal">
+                <option value="FREE">Free / non-billable</option>
+                <option value="RECURRING">Recurring card subscription</option>
+                <option value="CUSTOM">Custom / contact CIV</option>
+              </select>
+            </label>
+            <label className="grid gap-1.5 text-sm font-semibold text-text sm:col-span-2">
+              Paystack Test plan code
+              <input name="paystackPlanCode" defaultValue={plan.paystackPlanCode ?? ""} placeholder="PLN_… (recurring plans only)" autoComplete="off" className="min-h-11 rounded-lg border border-border bg-surface px-3 font-normal" />
+              <span className="text-xs font-normal leading-5 text-muted">Safe provider identifier only. Free and custom plans must leave this blank.</span>
+            </label>
           </div>
           <div className="grid gap-2 text-sm text-text sm:grid-cols-3">
             <label className="flex min-h-11 items-center gap-2 rounded-lg border border-border px-3"><input name="isActive" type="checkbox" defaultChecked={plan.isActive} /> Active</label>
@@ -85,6 +102,7 @@ export function PlatformPlanEditor({
         <dl className="mt-5 grid gap-2 text-sm">
           <div className="flex justify-between gap-4"><dt className="text-muted">Members</dt><dd className="font-semibold text-text">{plan.memberLimit?.toLocaleString() ?? "Custom"}</dd></div>
           <div className="flex justify-between gap-4"><dt className="text-muted">Monthly documents</dt><dd className="font-semibold text-text">{plan.documentLimit?.toLocaleString() ?? "Custom"}</dd></div>
+          <div className="flex justify-between gap-4"><dt className="text-muted">Billing</dt><dd className="font-semibold text-text">{plan.billingMode === "RECURRING" ? `${plan.currency} ${Number(plan.monthlyPrice).toFixed(2)} monthly` : plan.billingMode === "CUSTOM" ? "Contact CIV" : "Non-billable"}</dd></div>
           <div className="flex justify-between gap-4"><dt className="text-muted">State</dt><dd className="font-semibold text-text">{plan.isActive ? "Active" : "Inactive"} · {plan.isPublic ? "Public" : "Hidden"}</dd></div>
         </dl>
       )}

@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { LocalDateTime } from "@/components/ui/local-date-time";
 import { PlanSwitchCard } from "@/components/ui/plan-switch-card";
+import { RecurringCancellationControl } from "@/components/ui/recurring-subscription-controls";
 import { PageHeading } from "@/components/ui/page-heading";
 import { getPlanSettingsPageData } from "@/features/subscriptions/queries";
 
@@ -37,11 +38,11 @@ export default async function PlanSettingsPage() {
     <div>
       <PageHeading
         title="Plan & Storage"
-        description={`Review limits and choose the beta plan for ${data.workspace.name}.`}
+        description={`Review limits and recurring Test Mode options for ${data.workspace.name}.`}
       />
 
       <p className="mt-7 rounded-xl border border-civ-blue bg-active px-4 py-3 text-sm leading-6 text-text">
-        All CIV plans are free during beta. Plan limits remain active so every tier can be tested.
+        Paystack recurring checkout is in Test Mode. Free plans require no payment; configured paid plans use card-only monthly billing. No live money is processed.
       </p>
 
       <div className="mt-4 flex justify-end">
@@ -83,7 +84,11 @@ export default async function PlanSettingsPage() {
               {data.currentPlan.name}
             </h2>
             <p className="mt-1 text-sm text-muted">
-              {formatBetaPrice(data.currentPlan.betaPrice, data.currentPlan.currency)} during beta · {data.subscriptionStatus}
+              {data.currentPlan.billingMode === "RECURRING"
+                ? `${formatBetaPrice(data.currentPlan.monthlyPrice, data.currentPlan.currency)} monthly`
+                : data.currentPlan.billingMode === "CUSTOM"
+                  ? "Custom terms"
+                  : "No recurring payment"} · {data.subscriptionStatus}
             </p>
           </div>
           {!data.canManageSubscription ? (
@@ -120,11 +125,23 @@ export default async function PlanSettingsPage() {
         </dl>
       </section>
 
+      {data.recurringBilling.connected && data.recurringBilling.currentPeriodEnd ? (
+        <section className="mt-6" aria-label="Recurring subscription controls">
+          {data.recurringBilling.cancelAtPeriodEnd ? (
+            <p className="rounded-xl border border-border bg-surface p-5 text-sm leading-6 text-muted">
+              Renewal is cancelled. {data.currentPlan.name} access continues until <LocalDateTime value={data.recurringBilling.currentPeriodEnd.toISOString()} />, then {data.recurringBilling.fallbackPlan?.name ?? "the fallback plan"} applies.
+            </p>
+          ) : data.canManageSubscription ? (
+            <RecurringCancellationControl planName={data.currentPlan.name} periodEnd={data.recurringBilling.currentPeriodEnd.toISOString()} />
+          ) : null}
+        </section>
+      ) : null}
+
       <section className="mt-10" aria-labelledby="beta-plans-title">
         <div className="max-w-2xl">
-          <h2 id="beta-plans-title" className="text-xl font-bold text-text">Beta plans</h2>
+          <h2 id="beta-plans-title" className="text-xl font-bold text-text">Available plans</h2>
           <p className="mt-1 text-sm leading-6 text-muted">
-            Switching changes workspace entitlements immediately. It does not add billing or delete existing records.
+            A paid plan activates only after verified Paystack payment. CIV does not apply unsupported mid-cycle proration; cancel the current renewal before starting another recurring plan.
           </p>
         </div>
         <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">

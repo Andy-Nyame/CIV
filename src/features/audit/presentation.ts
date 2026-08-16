@@ -12,6 +12,11 @@ const actionLabels: Record<AuditAction, string> = {
   WORKSPACE_CREATED: "Workspace created",
   WORKSPACE_UPDATED: "Workspace updated",
   WORKSPACE_PLAN_CHANGED: "Plan changed",
+  SUBSCRIPTION_STARTED: "Subscription started",
+  SUBSCRIPTION_RENEWED: "Subscription renewed",
+  SUBSCRIPTION_PAYMENT_FAILED: "Subscription payment failed",
+  SUBSCRIPTION_CANCELLATION_SCHEDULED: "Subscription cancellation scheduled",
+  SUBSCRIPTION_CANCELLED: "Subscription cancelled",
   WORKSPACE_ARCHIVED: "Workspace archived",
   WORKSPACE_RESTORED: "Workspace restored",
   WORKSPACE_OWNERSHIP_TRANSFERRED: "Ownership transferred",
@@ -86,6 +91,16 @@ export function presentAuditEvent(event: PresentableAuditEvent) {
         return `${actor} updated this workspace.`;
       case "WORKSPACE_PLAN_CHANGED":
         return `${actor} switched this workspace from ${enumLabel(metadataText(metadata, "fromPlan", "a previous plan"))} to ${enumLabel(metadataText(metadata, "toPlan", "a new plan"))}.`;
+      case "SUBSCRIPTION_STARTED":
+        return `${actor} started the ${enumLabel(metadataText(metadata, "toPlan", "paid"))} subscription.`;
+      case "SUBSCRIPTION_RENEWED":
+        return `The ${enumLabel(metadataText(metadata, "planCode", "paid"))} subscription renewed successfully.`;
+      case "SUBSCRIPTION_PAYMENT_FAILED":
+        return `The ${enumLabel(metadataText(metadata, "planCode", "paid"))} subscription renewal payment failed.`;
+      case "SUBSCRIPTION_CANCELLATION_SCHEDULED":
+        return `${actor} scheduled the subscription to end at the close of the current billing period.`;
+      case "SUBSCRIPTION_CANCELLED":
+        return `The subscription ended and ${enumLabel(metadataText(metadata, "toPlan", "the fallback plan"))} limits resumed.`;
       case "WORKSPACE_ARCHIVED":
         return `${actor} archived this workspace.`;
       case "WORKSPACE_RESTORED":

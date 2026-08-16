@@ -47,6 +47,8 @@ function safeVerificationMetadata(verification: VerifiedProviderPayment) {
     channel: verification.channel,
     gatewayResponse: verification.gatewayResponse,
     paidAt: verification.paidAt,
+    planCode: verification.planCode,
+    customerCode: verification.customerCode,
   } satisfies Prisma.InputJsonObject;
 }
 
@@ -79,6 +81,7 @@ export async function createPaymentFoundationInTransaction(
     reference: string;
     safeMetadata?: Prisma.InputJsonObject;
     documentCreditPurchaseId?: string;
+    subscriptionChangeId?: string;
   },
 ): Promise<PaymentFoundation> {
   const amountMinor = toMinorUnits(input.amount, input.currency);
@@ -94,6 +97,7 @@ export async function createPaymentFoundationInTransaction(
       status: "PENDING",
       metadata: input.safeMetadata,
       documentCreditPurchaseId: input.documentCreditPurchaseId,
+      subscriptionChangeId: input.subscriptionChangeId,
     },
     select: { id: true },
   });
@@ -126,7 +130,8 @@ export async function initializePaymentFoundation(
     currency: "GHS";
     purpose: PaymentPurpose;
     metadata: Record<string, string>;
-    channels?: readonly ["card", "mobile_money"];
+    channels?: readonly ("card" | "mobile_money")[];
+    planCode?: string;
   },
   provider: PaymentProviderClient = getPaystackPaymentProvider(),
 ) {
@@ -143,6 +148,7 @@ export async function initializePaymentFoundation(
       email: email.data,
       reference: foundation.reference,
       metadata: input.metadata,
+      planCode: input.planCode,
     });
     const updatedAt = new Date();
     await db.$transaction([
@@ -285,7 +291,11 @@ export async function verifyPaymentByReference(
           amount: true,
           currency: true,
           status: true,
+          purpose: true,
           initiatedBy: { select: { email: true } },
+          subscriptionChange: {
+            select: { providerPlanCodeSnapshot: true },
+          },
         },
       },
     },
@@ -310,17 +320,27 @@ export async function verifyPaymentByReference(
     attempt.payment.amount,
     attempt.payment.currency as "GHS",
   );
-  const expectedEmail = attempt.payment.initiatedBy.email?.trim().toLowerCase();
+  const expectedEmail = attempt.payment.initiatedBy?.email?.trim().toLowerCase();
+  const subscriptionInitial = attempt.payment.purpose === "SUBSCRIPTION_INITIAL";
   const matches =
     verified.domain === "test" &&
     verified.reference === reference.data &&
     verified.amountMinor === expectedMinor &&
     verified.currency === attempt.payment.currency &&
-    (!expectedEmail || verified.customerEmail === expectedEmail);
+    (!expectedEmail || verified.customerEmail === expectedEmail) &&
+    (!subscriptionInitial ||
+      (verified.channel === "card" &&
+        verified.planCode ===
+          attempt.payment.subscriptionChange?.providerPlanCodeSnapshot));
   if (!matches) throw new PaymentVerificationError();
 
   const status = verificationStatus(verified.status);
   const now = new Date();
+  const providerPaidAt = verified.paidAt ? new Date(verified.paidAt) : null;
+  const completedAt =
+    providerPaidAt && !Number.isNaN(providerPaidAt.getTime())
+      ? providerPaidAt
+      : now;
   await db.$transaction(async (transaction) => {
     await lockPayment(transaction, attempt.payment.id);
     const current = await transaction.payment.findUniqueOrThrow({
@@ -333,7 +353,7 @@ export async function verifyPaymentByReference(
       where: { id: attempt.payment.id },
       data: {
         status,
-        completedAt: status === "SUCCEEDED" ? now : null,
+        completedAt: status === "SUCCEEDED" ? completedAt : null,
         failedAt: status === "FAILED" ? now : null,
       },
     });
@@ -342,7 +362,7 @@ export async function verifyPaymentByReference(
       data: {
         status,
         verifiedAt: now,
-        completedAt: status === "SUCCEEDED" ? now : null,
+        completedAt: status === "SUCCEEDED" ? completedAt : null,
         failedAt: status === "FAILED" ? now : null,
         responseMetadata: safeVerificationMetadata(verified),
       },
@@ -355,7 +375,7 @@ export async function verifyPaymentByReference(
     fulfillment = await entitlement.fulfillPaymentEntitlement(attempt.payment.id);
   } else if (status === "FAILED") {
     const entitlement = await import("./credit-purchases");
-    await entitlement.markDocumentCreditPurchasePaymentFailed(attempt.payment.id);
+    await entitlement.markPaymentEntitlementFailed(attempt.payment.id);
   }
   return { status, idempotent: false, fulfillment };
 }

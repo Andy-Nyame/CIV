@@ -66,6 +66,26 @@ enum SubscriptionStatus {
   CANCELLED
 }
 
+enum PlanBillingMode {
+  FREE
+  RECURRING
+  CUSTOM
+}
+
+enum SubscriptionChangeStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum SubscriptionBillingPeriodStatus {
+  PENDING
+  PAID
+  FAILED
+  CANCELLED
+}
+
 enum FileType {
   ORIGINAL_PDF
   CUSTOMER_PDF
@@ -165,30 +185,31 @@ enum PaymentProviderEventStatus {
 }
 
 model User {
-  id                         String                      @id @default(uuid()) @db.Uuid
-  name                       String?                     @db.VarChar(200)
-  email                      String?                     @unique @db.VarChar(320)
-  emailVerified              DateTime?                   @db.Timestamptz(3)
-  image                      String?                     @db.Text
-  passwordHash               String?                     @db.Text
-  passwordChangedAt          DateTime?                   @db.Timestamptz(3)
-  createdAt                  DateTime                    @default(now()) @db.Timestamptz(3)
-  updatedAt                  DateTime                    @updatedAt @db.Timestamptz(3)
-  accounts                   Account[]
-  sessions                   Session[]
-  memberships                Membership[]
-  platformMembership         PlatformMembership?
-  sentPlatformInvitations    PlatformInvitation[]        @relation("PlatformInvitationInviter")
-  platformAuditEvents        PlatformAuditEvent[]        @relation("PlatformAuditActor")
-  documentCreditPurchases    DocumentCreditPurchase[]    @relation("DocumentCreditPurchaseActor")
-  documentCreditTransactions DocumentCreditTransaction[] @relation("DocumentCreditTransactionActor")
-  grantedWorkspaceTrials     WorkspaceTrial[]            @relation("WorkspaceTrialGrantor")
-  initiatedPayments          Payment[]                   @relation("PaymentInitiator")
-  profilePhoto               ProfilePhoto?
-  signatureProfile           SignatureProfile?
-  sentInvitations            Invitation[]                @relation("InvitationInviter")
-  createdDocuments           Document[]                  @relation("DocumentCreator")
-  auditEvents                AuditEvent[]                @relation("AuditActor")
+  id                           String                      @id @default(uuid()) @db.Uuid
+  name                         String?                     @db.VarChar(200)
+  email                        String?                     @unique @db.VarChar(320)
+  emailVerified                DateTime?                   @db.Timestamptz(3)
+  image                        String?                     @db.Text
+  passwordHash                 String?                     @db.Text
+  passwordChangedAt            DateTime?                   @db.Timestamptz(3)
+  createdAt                    DateTime                    @default(now()) @db.Timestamptz(3)
+  updatedAt                    DateTime                    @updatedAt @db.Timestamptz(3)
+  accounts                     Account[]
+  sessions                     Session[]
+  memberships                  Membership[]
+  platformMembership           PlatformMembership?
+  sentPlatformInvitations      PlatformInvitation[]        @relation("PlatformInvitationInviter")
+  platformAuditEvents          PlatformAuditEvent[]        @relation("PlatformAuditActor")
+  documentCreditPurchases      DocumentCreditPurchase[]    @relation("DocumentCreditPurchaseActor")
+  documentCreditTransactions   DocumentCreditTransaction[] @relation("DocumentCreditTransactionActor")
+  grantedWorkspaceTrials       WorkspaceTrial[]            @relation("WorkspaceTrialGrantor")
+  initiatedPayments            Payment[]                   @relation("PaymentInitiator")
+  initiatedSubscriptionChanges SubscriptionChange[]        @relation("SubscriptionChangeActor")
+  profilePhoto                 ProfilePhoto?
+  signatureProfile             SignatureProfile?
+  sentInvitations              Invitation[]                @relation("InvitationInviter")
+  createdDocuments             Document[]                  @relation("DocumentCreator")
+  auditEvents                  AuditEvent[]                @relation("AuditActor")
 
   @@index([createdAt])
 }
@@ -337,6 +358,7 @@ model Workspace {
   documentAllowancePeriods   WorkspaceDocumentAllowancePeriod[]
   trials                     WorkspaceTrial[]
   payments                   Payment[]
+  subscriptionChanges        SubscriptionChange[]
 
   @@index([type])
   @@index([archivedAt])
@@ -603,7 +625,10 @@ model Plan {
   name                        String                             @db.VarChar(100)
   description                 String?                            @db.Text
   betaPrice                   Decimal                            @default(0) @db.Decimal(19, 4)
+  monthlyPrice                Decimal                            @default(0) @db.Decimal(19, 4)
   currency                    String                             @default("GHS") @db.VarChar(3)
+  billingMode                 PlanBillingMode                    @default(FREE)
+  paystackPlanCode            String?                            @unique @db.VarChar(100)
   documentLimit               Int?
   memberLimit                 Int?
   isPublic                    Boolean                            @default(true)
@@ -614,6 +639,10 @@ model Plan {
   createdAt                   DateTime                           @default(now()) @db.Timestamptz(3)
   updatedAt                   DateTime                           @updatedAt @db.Timestamptz(3)
   subscriptions               Subscription[]
+  fallbackSubscriptions       Subscription[]                     @relation("SubscriptionFallbackPlan")
+  pendingSubscriptions        Subscription[]                     @relation("SubscriptionPendingPlan")
+  subscriptionChanges         SubscriptionChange[]               @relation("SubscriptionChangeTargetPlan")
+  subscriptionBillingPeriods  SubscriptionBillingPeriod[]
   allowancePeriods            WorkspaceDocumentAllowancePeriod[]
   trialConfigurationsAsPlan   TrialConfiguration[]               @relation("TrialConfigurationPlan")
   trialConfigurationsFallback TrialConfiguration[]               @relation("TrialConfigurationFallback")
@@ -679,19 +708,96 @@ model WorkspaceTrial {
 }
 
 model Subscription {
-  id          String             @id @default(uuid()) @db.Uuid
-  workspaceId String             @unique @db.Uuid
-  planId      String             @db.Uuid
-  status      SubscriptionStatus @default(BETA)
-  startedAt   DateTime           @default(now()) @db.Timestamptz(3)
-  endsAt      DateTime?          @db.Timestamptz(3)
-  createdAt   DateTime           @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime           @updatedAt @db.Timestamptz(3)
-  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  plan        Plan               @relation(fields: [planId], references: [id], onDelete: Restrict)
+  id                       String                      @id @default(uuid()) @db.Uuid
+  workspaceId              String                      @unique @db.Uuid
+  planId                   String                      @db.Uuid
+  fallbackPlanId           String?                     @db.Uuid
+  pendingPlanId            String?                     @db.Uuid
+  status                   SubscriptionStatus          @default(BETA)
+  provider                 PaymentProvider?
+  providerCustomerCode     String?                     @db.VarChar(100)
+  providerSubscriptionCode String?                     @unique @db.VarChar(100)
+  currentPeriodStart       DateTime?                   @db.Timestamptz(3)
+  currentPeriodEnd         DateTime?                   @db.Timestamptz(3)
+  nextPaymentAt            DateTime?                   @db.Timestamptz(3)
+  lastPaymentAt            DateTime?                   @db.Timestamptz(3)
+  cancelAtPeriodEnd        Boolean                     @default(false)
+  startedAt                DateTime                    @default(now()) @db.Timestamptz(3)
+  endsAt                   DateTime?                   @db.Timestamptz(3)
+  createdAt                DateTime                    @default(now()) @db.Timestamptz(3)
+  updatedAt                DateTime                    @updatedAt @db.Timestamptz(3)
+  workspace                Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  plan                     Plan                        @relation(fields: [planId], references: [id], onDelete: Restrict)
+  fallbackPlan             Plan?                       @relation("SubscriptionFallbackPlan", fields: [fallbackPlanId], references: [id], onDelete: Restrict)
+  pendingPlan              Plan?                       @relation("SubscriptionPendingPlan", fields: [pendingPlanId], references: [id], onDelete: Restrict)
+  changes                  SubscriptionChange[]
+  billingPeriods           SubscriptionBillingPeriod[]
 
   @@index([planId])
+  @@index([fallbackPlanId])
+  @@index([pendingPlanId])
   @@index([status])
+  @@index([provider, providerCustomerCode])
+  @@index([currentPeriodEnd])
+}
+
+model SubscriptionChange {
+  id                       String                   @id @default(uuid()) @db.Uuid
+  workspaceId              String                   @db.Uuid
+  subscriptionId           String                   @db.Uuid
+  targetPlanId             String                   @db.Uuid
+  actorUserId              String?                  @db.Uuid
+  status                   SubscriptionChangeStatus @default(PENDING)
+  fromPlanCodeSnapshot     String                   @db.VarChar(50)
+  targetPlanCodeSnapshot   String                   @db.VarChar(50)
+  targetPlanNameSnapshot   String                   @db.VarChar(100)
+  priceSnapshot            Decimal                  @db.Decimal(19, 4)
+  currencySnapshot         String                   @db.Char(3)
+  providerPlanCodeSnapshot String                   @db.VarChar(100)
+  providerCustomerCode     String?                  @db.VarChar(100)
+  providerSubscriptionCode String?                  @unique @db.VarChar(100)
+  providerNextPaymentAt    DateTime?                @db.Timestamptz(3)
+  createdAt                DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt                DateTime                 @updatedAt @db.Timestamptz(3)
+  completedAt              DateTime?                @db.Timestamptz(3)
+  failedAt                 DateTime?                @db.Timestamptz(3)
+  cancelledAt              DateTime?                @db.Timestamptz(3)
+  workspace                Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  subscription             Subscription             @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  targetPlan               Plan                     @relation("SubscriptionChangeTargetPlan", fields: [targetPlanId], references: [id], onDelete: Restrict)
+  actor                    User?                    @relation("SubscriptionChangeActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  payments                 Payment[]
+
+  @@unique([subscriptionId], map: "SubscriptionChange_one_pending_per_subscription_key", where: { status: "PENDING" })
+  @@index([workspaceId, createdAt])
+  @@index([targetPlanId, status])
+  @@index([providerCustomerCode])
+  @@index([actorUserId])
+}
+
+model SubscriptionBillingPeriod {
+  id                           String                          @id @default(uuid()) @db.Uuid
+  subscriptionId               String                          @db.Uuid
+  planId                       String                          @db.Uuid
+  status                       SubscriptionBillingPeriodStatus @default(PENDING)
+  providerInvoiceCode          String?                         @unique @db.VarChar(100)
+  providerTransactionReference String?                         @unique @db.VarChar(100)
+  periodStart                  DateTime                        @db.Timestamptz(3)
+  periodEnd                    DateTime                        @db.Timestamptz(3)
+  amount                       Decimal                         @db.Decimal(19, 4)
+  currency                     String                          @db.Char(3)
+  createdAt                    DateTime                        @default(now()) @db.Timestamptz(3)
+  updatedAt                    DateTime                        @updatedAt @db.Timestamptz(3)
+  paidAt                       DateTime?                       @db.Timestamptz(3)
+  failedAt                     DateTime?                       @db.Timestamptz(3)
+  subscription                 Subscription                    @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  plan                         Plan                            @relation(fields: [planId], references: [id], onDelete: Restrict)
+  payment                      Payment?
+
+  @@unique([subscriptionId, periodStart])
+  @@index([subscriptionId, periodEnd])
+  @@index([planId, status])
+  @@index([status, periodEnd])
 }
 
 model DocumentCreditPack {
@@ -781,33 +887,38 @@ model WorkspaceDocumentAllowancePeriod {
 }
 
 model Payment {
-  id                       String                  @id @default(uuid()) @db.Uuid
-  workspaceId              String                  @db.Uuid
-  initiatedByUserId        String                  @db.Uuid
-  purpose                  PaymentPurpose
-  provider                 PaymentProvider
-  internalReference        String                  @unique @db.VarChar(100)
-  providerReference        String?                 @unique @db.VarChar(100)
-  amount                   Decimal                 @db.Decimal(19, 4)
-  currency                 String                  @db.Char(3)
-  status                   PaymentStatus           @default(PENDING)
-  metadata                 Json?
-  createdAt                DateTime                @default(now()) @db.Timestamptz(3)
-  updatedAt                DateTime                @updatedAt @db.Timestamptz(3)
-  completedAt              DateTime?               @db.Timestamptz(3)
-  failedAt                 DateTime?               @db.Timestamptz(3)
-  cancelledAt              DateTime?               @db.Timestamptz(3)
-  documentCreditPurchaseId String?                 @db.Uuid
-  workspace                Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  initiatedBy              User                    @relation("PaymentInitiator", fields: [initiatedByUserId], references: [id], onDelete: Restrict)
-  documentCreditPurchase   DocumentCreditPurchase? @relation(fields: [documentCreditPurchaseId], references: [id], onDelete: Restrict)
-  attempts                 PaymentAttempt[]
+  id                          String                     @id @default(uuid()) @db.Uuid
+  workspaceId                 String                     @db.Uuid
+  initiatedByUserId           String?                    @db.Uuid
+  purpose                     PaymentPurpose
+  provider                    PaymentProvider
+  internalReference           String                     @unique @db.VarChar(100)
+  providerReference           String?                    @unique @db.VarChar(100)
+  amount                      Decimal                    @db.Decimal(19, 4)
+  currency                    String                     @db.Char(3)
+  status                      PaymentStatus              @default(PENDING)
+  metadata                    Json?
+  createdAt                   DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt                   DateTime                   @updatedAt @db.Timestamptz(3)
+  completedAt                 DateTime?                  @db.Timestamptz(3)
+  failedAt                    DateTime?                  @db.Timestamptz(3)
+  cancelledAt                 DateTime?                  @db.Timestamptz(3)
+  documentCreditPurchaseId    String?                    @db.Uuid
+  subscriptionChangeId        String?                    @db.Uuid
+  subscriptionBillingPeriodId String?                    @unique @db.Uuid
+  workspace                   Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  initiatedBy                 User?                      @relation("PaymentInitiator", fields: [initiatedByUserId], references: [id], onDelete: SetNull)
+  documentCreditPurchase      DocumentCreditPurchase?    @relation(fields: [documentCreditPurchaseId], references: [id], onDelete: Restrict)
+  subscriptionChange          SubscriptionChange?        @relation(fields: [subscriptionChangeId], references: [id], onDelete: Restrict)
+  subscriptionBillingPeriod   SubscriptionBillingPeriod? @relation(fields: [subscriptionBillingPeriodId], references: [id], onDelete: Restrict)
+  attempts                    PaymentAttempt[]
 
   @@index([workspaceId, createdAt])
   @@index([initiatedByUserId, createdAt])
   @@index([status, createdAt])
   @@index([provider, providerReference])
   @@index([documentCreditPurchaseId, status])
+  @@index([subscriptionChangeId, status])
 }
 
 model PaymentAttempt {

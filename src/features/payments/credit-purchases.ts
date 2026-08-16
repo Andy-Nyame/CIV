@@ -374,13 +374,53 @@ export async function fulfillDocumentCreditPurchase(paymentId: string) {
   }, commercialTransactionOptions);
 }
 
-export async function fulfillPaymentEntitlement(paymentId: string) {
+export async function fulfillPaymentEntitlement(
+  paymentId: string,
+): Promise<
+  | null
+  | {
+      kind?: "DOCUMENT_CREDITS" | "SUBSCRIPTION";
+      purchaseId?: string;
+      ledgerEntryId?: string;
+      credits?: number;
+      balance?: number;
+      subscriptionId?: string;
+      planCode?: string;
+      idempotent: boolean;
+    }
+> {
   const payment = await db.payment.findUnique({
     where: { id: paymentId },
     select: { purpose: true },
   });
-  if (!payment || payment.purpose !== "DOCUMENT_CREDITS") return null;
-  return fulfillDocumentCreditPurchase(paymentId);
+  if (!payment) return null;
+  if (payment.purpose === "DOCUMENT_CREDITS") {
+    return {
+      kind: "DOCUMENT_CREDITS",
+      ...(await fulfillDocumentCreditPurchase(paymentId)),
+    };
+  }
+  if (payment.purpose === "SUBSCRIPTION_INITIAL") {
+    const recurring = await import("./recurring-subscriptions");
+    return recurring.fulfillRecurringSubscriptionPayment(paymentId);
+  }
+  return null;
+}
+
+export async function markPaymentEntitlementFailed(paymentId: string) {
+  const payment = await db.payment.findUnique({
+    where: { id: paymentId },
+    select: { purpose: true },
+  });
+  if (!payment) return false;
+  if (payment.purpose === "DOCUMENT_CREDITS") {
+    return markDocumentCreditPurchasePaymentFailed(paymentId);
+  }
+  if (payment.purpose === "SUBSCRIPTION_INITIAL") {
+    const recurring = await import("./recurring-subscriptions");
+    return recurring.markRecurringSubscriptionPaymentFailed(paymentId);
+  }
+  return false;
 }
 
 export async function markDocumentCreditPurchasePaymentFailed(paymentId: string) {

@@ -19,7 +19,7 @@ function changedFields(before: object, after: object) {
   return Object.keys(after).filter((key) => {
     const previous = Reflect.get(before, key) as unknown;
     const next = Reflect.get(after, key) as unknown;
-    if (key === "betaPrice" || key === "price") {
+    if (key === "betaPrice" || key === "monthlyPrice" || key === "price") {
       return Number(previous) !== Number(next);
     }
     return String(previous ?? "") !== String(next ?? "");
@@ -41,13 +41,37 @@ export async function updatePlanConfiguration(input: {
       where: { code: parsed.data.code },
     });
     if (!existing) throw new CommercialConfigurationError();
+    const billingMode = parsed.data.billingMode ?? existing.billingMode;
+    const monthlyPrice = parsed.data.monthlyPrice ?? existing.monthlyPrice.toString();
+    const paystackPlanCode =
+      parsed.data.paystackPlanCode === undefined
+        ? existing.paystackPlanCode
+        : parsed.data.paystackPlanCode;
+    const recurringValid =
+      billingMode !== "RECURRING" ||
+      (Number(monthlyPrice) > 0 &&
+        parsed.data.currency === "GHS" &&
+        paystackPlanCode !== null);
+    const nonRecurringValid =
+      billingMode === "RECURRING" ||
+      (Number(monthlyPrice) === 0 && paystackPlanCode === null);
+    if (!recurringValid || !nonRecurringValid) {
+      throw new CommercialValidationError({
+        billingMode: [
+          "Recurring plans require a positive GHS monthly price and Paystack Test plan code; Free/Custom plans must not have recurring provider mapping.",
+        ],
+      });
+    }
     const data = {
       name: parsed.data.name,
       description: parsed.data.description,
       memberLimit: parsed.data.memberLimit,
       documentLimit: parsed.data.documentLimit,
       betaPrice: parsed.data.betaPrice,
+      monthlyPrice,
       currency: parsed.data.currency,
+      billingMode,
+      paystackPlanCode,
       isActive: parsed.data.isActive,
       isPublic: parsed.data.isPublic,
       isAvailableForNewWorkspaces: parsed.data.isAvailableForNewWorkspaces,

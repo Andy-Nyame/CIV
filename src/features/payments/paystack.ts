@@ -35,7 +35,15 @@ const verifyResponseSchema = z.object({
     channel: z.string().max(50).nullable().optional(),
     gateway_response: z.string().max(255).nullable().optional(),
     paid_at: z.string().nullable().optional(),
-    customer: z.object({ email: z.string().email().max(320) }).nullable().optional(),
+    customer: z.object({
+      email: z.string().email().max(320),
+      customer_code: z.string().max(100).nullable().optional(),
+    }).nullable().optional(),
+    plan: z.union([
+      z.string().max(100),
+      z.object({ plan_code: z.string().max(100).optional() }),
+    ]).nullable().optional(),
+    plan_object: z.object({ plan_code: z.string().max(100).optional() }).nullable().optional(),
   }),
 });
 
@@ -50,6 +58,42 @@ const chargeEventDataSchema = z.object({
   reference: z.string().min(1).max(100),
   amount: z.number().int().nonnegative(),
   currency: z.string().length(3),
+});
+
+const customerEventSchema = z.object({
+  customer_code: z.string().min(1).max(100).nullable().optional(),
+  email: z.string().email().max(320).nullable().optional(),
+});
+
+const subscriptionEventDataSchema = z.object({
+  id: z.union([z.number().int().nonnegative(), z.string().min(1)]).optional(),
+  status: z.string().min(1).max(50),
+  subscription_code: z.string().min(1).max(100),
+  email_token: z.string().min(1).max(255).nullable().optional(),
+  next_payment_date: z.string().nullable().optional(),
+  plan: z.object({ plan_code: z.string().min(1).max(100) }),
+  customer: customerEventSchema,
+});
+
+const invoiceEventDataSchema = z.object({
+  invoice_code: z.string().min(1).max(100),
+  amount: z.number().int().nonnegative(),
+  currency: z.string().length(3).optional().default("GHS"),
+  period_start: z.string(),
+  period_end: z.string(),
+  status: z.string().min(1).max(50),
+  paid: z.boolean().optional().default(false),
+  paid_at: z.string().nullable().optional(),
+  subscription: z.object({
+    subscription_code: z.string().min(1).max(100),
+    next_payment_date: z.string().nullable().optional(),
+  }),
+  transaction: z.object({
+    reference: z.string().min(1).max(100),
+    status: z.string().min(1).max(50).optional(),
+    amount: z.number().int().nonnegative().optional(),
+    currency: z.string().length(3).optional(),
+  }).nullable().optional(),
 });
 
 function checkoutUrl(value: string) {
@@ -106,6 +150,7 @@ export class PaystackPaymentProvider implements PaymentProviderClient {
         currency: input.currency,
         reference: input.reference,
         callback_url: input.callbackUrl,
+        ...(input.planCode ? { plan: input.planCode } : {}),
         ...(input.channels ? { channels: input.channels } : {}),
         metadata: JSON.stringify(input.metadata),
       }),
@@ -132,6 +177,14 @@ export class PaystackPaymentProvider implements PaymentProviderClient {
     const parsed = verifyResponseSchema.safeParse(payload);
     if (!parsed.success) throw new PaymentProviderError();
     const data = parsed.data.data;
+    const directPlanCode =
+      typeof data.plan === "string" ? data.plan : data.plan?.plan_code;
+    const planObjectCode = data.plan_object?.plan_code;
+    const planCode =
+      [directPlanCode, planObjectCode].find(
+        (value): value is string =>
+          typeof value === "string" && /^PLN_[A-Za-z0-9]+$/.test(value),
+      ) ?? planObjectCode ?? directPlanCode ?? null;
     return {
       transactionId: String(data.id),
       domain: data.domain,
@@ -143,7 +196,37 @@ export class PaystackPaymentProvider implements PaymentProviderClient {
       channel: data.channel ?? null,
       gatewayResponse: data.gateway_response ?? null,
       paidAt: data.paid_at ?? null,
+      planCode,
+      customerCode: data.customer?.customer_code ?? null,
     };
+  }
+
+  async disableSubscription(input: {
+    subscriptionCode: string;
+  }) {
+    if (!/^SUB_[A-Za-z0-9]+$/.test(input.subscriptionCode)) {
+      throw new PaymentValidationError();
+    }
+    const subscription = z.object({
+      status: z.literal(true),
+      data: z.object({
+        subscription_code: z.literal(input.subscriptionCode),
+        email_token: z.string().min(1).max(255),
+      }),
+    }).safeParse(await this.request(
+      `/subscription/${encodeURIComponent(input.subscriptionCode)}`,
+      { method: "GET" },
+    ));
+    if (!subscription.success) throw new PaymentProviderError();
+    const response = await this.request("/subscription/disable", {
+      method: "POST",
+      body: JSON.stringify({
+        code: input.subscriptionCode,
+        token: subscription.data.data.email_token,
+      }),
+    });
+    const parsed = z.object({ status: z.literal(true) }).safeParse(response);
+    if (!parsed.success) throw new PaymentProviderError();
   }
 
   validateWebhook(rawBody: Uint8Array, signature: string | null) {
@@ -164,26 +247,74 @@ export class PaystackPaymentProvider implements PaymentProviderClient {
     }
     const envelope = eventEnvelopeSchema.safeParse(payload);
     if (!envelope.success) throw new PaymentValidationError();
-    if (envelope.data.event !== "charge.success") {
+    if (envelope.data.event === "charge.success") {
+      const data = chargeEventDataSchema.safeParse(envelope.data.data);
+      if (!data.success) throw new PaymentValidationError();
       return {
         eventType: envelope.data.event,
-        eventIdentifier: null,
-        providerReference: null,
-        safeData: {},
+        eventIdentifier: String(data.data.id),
+        providerReference: data.data.reference,
+        safeData: {
+          transactionId: String(data.data.id),
+          status: data.data.status,
+          amountMinor: data.data.amount,
+          currency: data.data.currency,
+        },
       };
     }
-    const data = chargeEventDataSchema.safeParse(envelope.data.data);
-    if (!data.success) throw new PaymentValidationError();
+
+    if (["subscription.create", "subscription.not_renew", "subscription.disable"].includes(envelope.data.event)) {
+      const data = subscriptionEventDataSchema.safeParse(envelope.data.data);
+      if (!data.success) throw new PaymentValidationError();
+      return {
+        eventType: envelope.data.event,
+        eventIdentifier: `${envelope.data.event}:${data.data.subscription_code}`,
+        providerReference: null,
+        safeData: {
+          subscriptionCode: data.data.subscription_code,
+          planCode: data.data.plan.plan_code,
+          customerCode: data.data.customer.customer_code ?? null,
+          customerEmail: data.data.customer.email?.trim().toLowerCase() ?? null,
+          subscriptionStatus: data.data.status,
+          nextPaymentDate: data.data.next_payment_date ?? null,
+        },
+      };
+    }
+
+    if (["invoice.create", "invoice.update", "invoice.payment_failed"].includes(envelope.data.event)) {
+      const data = invoiceEventDataSchema.safeParse(envelope.data.data);
+      if (!data.success) throw new PaymentValidationError();
+      return {
+        eventType: envelope.data.event,
+        eventIdentifier: [
+          envelope.data.event,
+          data.data.invoice_code,
+          data.data.status,
+          data.data.paid ? "paid" : "unpaid",
+          data.data.transaction?.reference ?? "none",
+        ].join(":"),
+        providerReference: data.data.transaction?.reference ?? null,
+        safeData: {
+          invoiceCode: data.data.invoice_code,
+          subscriptionCode: data.data.subscription.subscription_code,
+          amountMinor: data.data.amount,
+          currency: data.data.currency,
+          periodStart: data.data.period_start,
+          periodEnd: data.data.period_end,
+          invoiceStatus: data.data.status,
+          paid: data.data.paid,
+          paidAt: data.data.paid_at ?? null,
+          nextPaymentDate: data.data.subscription.next_payment_date ?? null,
+          transactionReference: data.data.transaction?.reference ?? null,
+        },
+      };
+    }
+
     return {
       eventType: envelope.data.event,
-      eventIdentifier: String(data.data.id),
-      providerReference: data.data.reference,
-      safeData: {
-        transactionId: String(data.data.id),
-        status: data.data.status,
-        amountMinor: data.data.amount,
-        currency: data.data.currency,
-      },
+      eventIdentifier: null,
+      providerReference: null,
+      safeData: {},
     };
   }
 }

@@ -16,7 +16,7 @@ export default async function PlatformPlansPage() {
         description="Configure CIV plan allowances and availability without changing their stable internal identities."
       />
       <p className="mt-6 rounded-xl border border-border bg-soft-blue p-4 text-sm leading-6 text-civ-navy dark:bg-surface-muted dark:text-text">
-        All CIV plans are GH₵0 during beta. Configuration changes apply to subscribed workspaces, but never delete members, documents, or purchased credits.
+        Configure Test Mode recurring prices and Paystack plan mappings deliberately. Changes never delete members, documents, or purchased credits, and stable CIV plan codes cannot be edited here.
       </p>
       {!data.canManage ? (
         <p className="mt-4 text-sm text-muted">

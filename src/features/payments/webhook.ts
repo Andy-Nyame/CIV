@@ -65,6 +65,47 @@ export async function processPaystackWebhook(
     return { accepted: true as const, duplicate: true };
   }
 
+  const recurringEvents = new Set([
+    "subscription.create",
+    "subscription.not_renew",
+    "subscription.disable",
+    "invoice.create",
+    "invoice.update",
+    "invoice.payment_failed",
+  ]);
+  if (recurringEvents.has(event.eventType)) {
+    try {
+      const recurring = await import("./recurring-subscriptions");
+      const result = await recurring.processRecurringSubscriptionEvent(event);
+      await db.paymentProviderEvent.update({
+        where: { id: record.id },
+        data: {
+          status: result.handled ? "PROCESSED" : "IGNORED",
+          processedAt: new Date(),
+          safeData: {
+            ...event.safeData,
+            outcome: result.handled
+              ? result.idempotent
+                ? "IDEMPOTENT"
+                : "PROCESSED"
+              : "UNKNOWN_SUBSCRIPTION",
+          },
+        },
+      });
+      return {
+        accepted: true as const,
+        duplicate: result.idempotent,
+        ignored: !result.handled,
+      };
+    } catch (error) {
+      await db.paymentProviderEvent.update({
+        where: { id: record.id },
+        data: { status: "FAILED", processedAt: new Date() },
+      });
+      throw error;
+    }
+  }
+
   if (event.eventType !== "charge.success" || !event.providerReference) {
     await db.paymentProviderEvent.update({
       where: { id: record.id },

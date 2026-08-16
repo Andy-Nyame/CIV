@@ -118,13 +118,83 @@ test("Paystack client sends trusted minor units and validates response/reference
     currency: "GHS",
     email: "billing@example.invalid",
     metadata: { entitlementGrant: "false" },
+    channels: ["card"],
+    planCode: "PLN_TESTRECURRING",
     reference,
   });
   assert.equal(requestBody.amount, "100");
   assert.equal(requestBody.reference, reference);
+  assert.deepEqual(requestBody.channels, ["card"]);
+  assert.equal(requestBody.plan, "PLN_TESTRECURRING");
   assert.equal(initialized.reference, reference);
   assert.equal(authorization.startsWith("Bearer sk_test_"), true);
   assert.equal(JSON.stringify(initialized).includes("sk_test_"), false);
+});
+
+test("Paystack subscription webhook parser keeps cancellation token transient", () => {
+  const provider = new PaystackPaymentProvider(fetch, fakeEnvironment);
+  const event = provider.parseWebhookEvent(Buffer.from(JSON.stringify({
+    event: "subscription.create",
+    data: {
+      subscription_code: "SUB_TESTSUBSCRIPTION",
+      email_token: "secretCancellationToken",
+      status: "active",
+      next_payment_date: "2026-09-16T12:00:00.000Z",
+      plan: { plan_code: "PLN_TESTRECURRING" },
+      customer: {
+        customer_code: "CUS_TESTCUSTOMER",
+        email: "owner@example.invalid",
+      },
+    },
+  })));
+  assert.equal(JSON.stringify(event.safeData).includes("secretCancellationToken"), false);
+});
+
+test("Paystack verification resolves the provider plan code safely", async () => {
+  const reference = createInternalPaymentReference();
+  const provider = new PaystackPaymentProvider(async () => Response.json({
+    status: true,
+    data: {
+      id: 42,
+      domain: "test",
+      status: "success",
+      reference,
+      amount: 100,
+      currency: "GHS",
+      channel: "card",
+      gateway_response: "Successful",
+      paid_at: "2026-08-16T12:00:00.000Z",
+      customer: {
+        email: "owner@example.invalid",
+        customer_code: "CUS_TESTCUSTOMER",
+      },
+      plan: "123456",
+      plan_object: { plan_code: "PLN_TESTRECURRING" },
+    },
+  }), fakeEnvironment);
+  const verified = await provider.verifyPayment(reference);
+  assert.equal(verified.planCode, "PLN_TESTRECURRING");
+  assert.equal(verified.channel, "card");
+});
+
+test("Paystack cancellation token is fetched server-side and never returned", async () => {
+  const requests: Array<{ url: string; body?: string }> = [];
+  const provider = new PaystackPaymentProvider(async (url, init) => {
+    requests.push({ url: String(url), body: typeof init?.body === "string" ? init.body : undefined });
+    if (String(url).endsWith("/subscription/SUB_TESTSUBSCRIPTION")) {
+      return Response.json({
+        status: true,
+        data: {
+          subscription_code: "SUB_TESTSUBSCRIPTION",
+          email_token: "transientCancellationToken",
+        },
+      });
+    }
+    return Response.json({ status: true });
+  }, fakeEnvironment);
+  await provider.disableSubscription({ subscriptionCode: "SUB_TESTSUBSCRIPTION" });
+  assert.equal(requests.length, 2);
+  assert.match(requests[1].body ?? "", /transientCancellationToken/);
 });
 
 test("Paystack HMAC checks exact raw bytes and rejects modification", () => {

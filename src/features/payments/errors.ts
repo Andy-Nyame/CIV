@@ -53,3 +53,21 @@ export class DocumentCreditPaymentError extends Error {
     this.name = "DocumentCreditPaymentError";
   }
 }
+
+export class SubscriptionPaymentError extends Error {
+  constructor(
+    public readonly reason:
+      | "PLAN_UNAVAILABLE"
+      | "PLAN_NOT_RECURRING"
+      | "PLAN_MAPPING_MISSING"
+      | "ACTIVE_SUBSCRIPTION"
+      | "CHANGE_IN_PROGRESS"
+      | "FULFILLMENT_MISMATCH"
+      | "SUBSCRIPTION_UNAVAILABLE"
+      | "CANCELLATION_UNAVAILABLE"
+      | "DOWNGRADE_BLOCKED",
+  ) {
+    super("The recurring subscription request could not be completed.");
+    this.name = "SubscriptionPaymentError";
+  }
+}

@@ -5,7 +5,10 @@ export type PlanOption = {
   name: string;
   description: string | null;
   betaPrice: string;
+  monthlyPrice: string;
   currency: string;
+  billingMode: "FREE" | "RECURRING" | "CUSTOM";
+  paystackPlanConfigured: boolean;
   memberLimit: number | null;
   documentLimit: number | null;
 };

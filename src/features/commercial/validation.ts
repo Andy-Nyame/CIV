@@ -20,7 +20,13 @@ export const planConfigurationSchema = z.object({
   memberLimit: nullablePositiveInteger,
   documentLimit: nullablePositiveInteger,
   betaPrice: priceSchema,
+  monthlyPrice: priceSchema.optional(),
   currency: currencySchema,
+  billingMode: z.enum(["FREE", "RECURRING", "CUSTOM"]).optional(),
+  paystackPlanCode: z.preprocess(
+    (value) => (value === "" || value === null ? null : value),
+    z.string().trim().regex(/^PLN_[A-Za-z0-9]+$/).max(100).nullable(),
+  ).optional(),
   isActive: z.boolean(),
   isPublic: z.boolean(),
   isAvailableForNewWorkspaces: z.boolean(),

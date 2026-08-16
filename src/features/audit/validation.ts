@@ -36,6 +36,38 @@ export const auditMetadataSchemas = {
   WORKSPACE_PLAN_CHANGED: z
     .object({ fromPlan: planCodeSchema, toPlan: planCodeSchema })
     .strict(),
+  SUBSCRIPTION_STARTED: z
+    .object({
+      fromPlan: planCodeSchema,
+      toPlan: planCodeSchema,
+      paymentReference: z.string().min(1).max(100),
+    })
+    .strict(),
+  SUBSCRIPTION_RENEWED: z
+    .object({
+      planCode: planCodeSchema,
+      periodStart: z.string().min(20).max(40),
+      periodEnd: z.string().min(20).max(40),
+      paymentReference: z.string().min(1).max(100),
+    })
+    .strict(),
+  SUBSCRIPTION_PAYMENT_FAILED: z
+    .object({
+      planCode: planCodeSchema,
+      periodEnd: z.string().min(20).max(40),
+      invoiceCode: z.string().min(1).max(100).nullable(),
+    })
+    .strict(),
+  SUBSCRIPTION_CANCELLATION_SCHEDULED: z
+    .object({
+      planCode: planCodeSchema,
+      effectiveAt: z.string().min(20).max(40),
+      nextPlan: planCodeSchema,
+    })
+    .strict(),
+  SUBSCRIPTION_CANCELLED: z
+    .object({ fromPlan: planCodeSchema, toPlan: planCodeSchema })
+    .strict(),
   WORKSPACE_ARCHIVED: z.object({ workspaceName: displayNameSchema }).strict(),
   WORKSPACE_RESTORED: z.object({ workspaceName: displayNameSchema }).strict(),
   WORKSPACE_OWNERSHIP_TRANSFERRED: z
