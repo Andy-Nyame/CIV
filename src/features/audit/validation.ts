@@ -54,8 +54,10 @@ export const auditMetadataSchemas = {
     .object({
       packCode: z.string().trim().min(1).max(50),
       credits: z.number().int().positive(),
-      betaPrice: z.string().regex(/^\d+(\.\d{1,4})?$/),
+      amount: z.string().regex(/^\d+(\.\d{1,4})?$/),
       currency: z.string().length(3),
+      acquisitionMethod: z.enum(["BETA", "PAYSTACK_TEST"]),
+      paymentReference: z.string().trim().min(1).max(100).nullable(),
     })
     .strict(),
   TRIAL_STARTED: trialMetadataSchema,

@@ -24,7 +24,13 @@ const emailSchema = z.string().trim().toLowerCase().email().max(320);
 const paymentReferenceSchema = z.string().regex(/^CIV-PAY-[A-F0-9]{32}$/);
 const transactionOptions = { maxWait: 15_000, timeout: 30_000 } as const;
 
-async function lockPayment(
+export type PaymentFoundation = {
+  paymentId: string;
+  attemptId: string;
+  reference: string;
+};
+
+export async function lockPayment(
   transaction: Prisma.TransactionClient,
   paymentId: string,
 ) {
@@ -62,15 +68,65 @@ async function markInitializationFailed(paymentId: string, attemptId: string) {
   ]);
 }
 
-export async function initializePayment(
+export async function createPaymentFoundationInTransaction(
+  transaction: Prisma.TransactionClient,
   input: {
     actorUserId: string;
     workspaceId: string;
-    email: string;
     purpose: PaymentPurpose;
     amount: string;
     currency: "GHS";
+    reference: string;
     safeMetadata?: Prisma.InputJsonObject;
+    documentCreditPurchaseId?: string;
+  },
+): Promise<PaymentFoundation> {
+  const amountMinor = toMinorUnits(input.amount, input.currency);
+  const payment = await transaction.payment.create({
+    data: {
+      workspaceId: input.workspaceId,
+      initiatedByUserId: input.actorUserId,
+      purpose: input.purpose,
+      provider: "PAYSTACK",
+      internalReference: input.reference,
+      amount: input.amount,
+      currency: input.currency,
+      status: "PENDING",
+      metadata: input.safeMetadata,
+      documentCreditPurchaseId: input.documentCreditPurchaseId,
+    },
+    select: { id: true },
+  });
+  const attempt = await transaction.paymentAttempt.create({
+    data: {
+      paymentId: payment.id,
+      provider: "PAYSTACK",
+      providerReference: input.reference,
+      requestMetadata: {
+        amountMinor,
+        currency: input.currency,
+        purpose: input.purpose,
+        callbackPath: "/app/settings/billing/payment-return",
+      },
+    },
+    select: { id: true },
+  });
+  return {
+    paymentId: payment.id,
+    attemptId: attempt.id,
+    reference: input.reference,
+  };
+}
+
+export async function initializePaymentFoundation(
+  foundation: PaymentFoundation,
+  input: {
+    email: string;
+    amount: string;
+    currency: "GHS";
+    purpose: PaymentPurpose;
+    metadata: Record<string, string>;
+    channels?: readonly ["card", "mobile_money"];
   },
   provider: PaymentProviderClient = getPaystackPaymentProvider(),
 ) {
@@ -78,57 +134,15 @@ export async function initializePayment(
   if (!email.success) throw new PaymentValidationError();
   const amountMinor = toMinorUnits(input.amount, input.currency);
   const config = readPaystackConfig();
-  const reference = createInternalPaymentReference();
-
-  const foundation = await db.$transaction(async (transaction) => {
-    await requireSubscriptionManagerInTransaction(
-      transaction,
-      input.actorUserId,
-      input.workspaceId,
-    );
-    const payment = await transaction.payment.create({
-      data: {
-        workspaceId: input.workspaceId,
-        initiatedByUserId: input.actorUserId,
-        purpose: input.purpose,
-        provider: provider.provider,
-        internalReference: reference,
-        amount: input.amount,
-        currency: input.currency,
-        status: "PENDING",
-        metadata: input.safeMetadata,
-      },
-      select: { id: true },
-    });
-    const attempt = await transaction.paymentAttempt.create({
-      data: {
-        paymentId: payment.id,
-        provider: provider.provider,
-        providerReference: reference,
-        requestMetadata: {
-          amountMinor,
-          currency: input.currency,
-          purpose: input.purpose,
-          callbackPath: "/app/settings/billing/payment-return",
-        },
-      },
-      select: { id: true },
-    });
-    return { paymentId: payment.id, attemptId: attempt.id };
-  }, transactionOptions);
-
   try {
     const initialized = await provider.initializePayment({
       amountMinor,
       callbackUrl: config.callbackUrl,
+      channels: input.channels,
       currency: input.currency,
       email: email.data,
-      reference,
-      metadata: {
-        civReference: reference,
-        purpose: input.purpose,
-        entitlementGrant: "false",
-      },
+      reference: foundation.reference,
+      metadata: input.metadata,
     });
     const updatedAt = new Date();
     await db.$transaction([
@@ -153,7 +167,7 @@ export async function initializePayment(
     ]);
     return {
       paymentId: foundation.paymentId,
-      reference,
+      reference: foundation.reference,
       authorizationUrl: initialized.authorizationUrl,
     };
   } catch (error) {
@@ -166,6 +180,55 @@ export async function initializePayment(
     }
     throw new PaymentProviderError();
   }
+}
+
+export async function initializePayment(
+  input: {
+    actorUserId: string;
+    workspaceId: string;
+    email: string;
+    purpose: PaymentPurpose;
+    amount: string;
+    currency: "GHS";
+    safeMetadata?: Prisma.InputJsonObject;
+  },
+  provider: PaymentProviderClient = getPaystackPaymentProvider(),
+) {
+  const email = emailSchema.safeParse(input.email);
+  if (!email.success) throw new PaymentValidationError();
+  const reference = createInternalPaymentReference();
+
+  const foundation = await db.$transaction(async (transaction) => {
+    await requireSubscriptionManagerInTransaction(
+      transaction,
+      input.actorUserId,
+      input.workspaceId,
+    );
+    return createPaymentFoundationInTransaction(transaction, {
+      actorUserId: input.actorUserId,
+      workspaceId: input.workspaceId,
+      purpose: input.purpose,
+      amount: input.amount,
+      currency: input.currency,
+      reference,
+      safeMetadata: input.safeMetadata,
+    });
+  }, transactionOptions);
+  return initializePaymentFoundation(
+    foundation,
+    {
+      email: email.data,
+      amount: input.amount,
+      currency: input.currency,
+      purpose: input.purpose,
+      metadata: {
+        civReference: reference,
+        purpose: input.purpose,
+        entitlementGrant: "false",
+      },
+    },
+    provider,
+  );
 }
 
 export async function initializeBillingTestPayment(
@@ -236,7 +299,9 @@ export async function verifyPaymentByReference(
     throw new PaymentAuthorizationError();
   }
   if (attempt.payment.status === "SUCCEEDED") {
-    return { status: "SUCCEEDED" as const, idempotent: true };
+    const { fulfillPaymentEntitlement } = await import("./credit-purchases");
+    const fulfillment = await fulfillPaymentEntitlement(attempt.payment.id);
+    return { status: "SUCCEEDED" as const, idempotent: true, fulfillment };
   }
 
   const provider = options.provider ?? getPaystackPaymentProvider();
@@ -284,5 +349,13 @@ export async function verifyPaymentByReference(
     });
   }, transactionOptions);
 
-  return { status, idempotent: false };
+  let fulfillment = null;
+  if (status === "SUCCEEDED") {
+    const entitlement = await import("./credit-purchases");
+    fulfillment = await entitlement.fulfillPaymentEntitlement(attempt.payment.id);
+  } else if (status === "FAILED") {
+    const entitlement = await import("./credit-purchases");
+    await entitlement.markDocumentCreditPurchasePaymentFailed(attempt.payment.id);
+  }
+  return { status, idempotent: false, fulfillment };
 }

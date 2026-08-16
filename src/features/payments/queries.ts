@@ -28,6 +28,13 @@ export async function getWorkspaceBillingPageData() {
       status: true,
       createdAt: true,
       completedAt: true,
+      documentCreditPurchase: {
+        select: {
+          status: true,
+          creditAmountSnapshot: true,
+          pack: { select: { code: true, name: true } },
+        },
+      },
     },
   });
   const config = readPaystackConfig();
@@ -62,6 +69,13 @@ export async function getWorkspacePaymentReturnData(reference: unknown) {
       status: true,
       createdAt: true,
       completedAt: true,
+      documentCreditPurchase: {
+        select: {
+          status: true,
+          creditAmountSnapshot: true,
+          pack: { select: { name: true } },
+        },
+      },
     },
   });
   return payment
@@ -85,6 +99,13 @@ export async function getPlatformPaymentsPageData() {
         status: true,
         createdAt: true,
         completedAt: true,
+        documentCreditPurchase: {
+          select: {
+            status: true,
+            creditAmountSnapshot: true,
+            pack: { select: { code: true, name: true } },
+          },
+        },
         workspace: { select: { name: true } },
         initiatedBy: { select: { name: true, email: true } },
         _count: { select: { attempts: true } },

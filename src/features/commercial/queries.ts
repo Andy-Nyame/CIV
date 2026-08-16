@@ -58,7 +58,8 @@ export async function getPlatformCreditPackManagementData() {
   const context = await requirePlatformPageCapability(
     PLATFORM_CAPABILITIES.VIEW_PLANS,
   );
-  const [packs, ledger] = await Promise.all([
+  const [packs, ledger, purchaseStatuses, paidCompleted, packPopularity] =
+    await Promise.all([
     db.documentCreditPack.findMany({
       orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
       select: {
@@ -78,14 +79,37 @@ export async function getPlatformCreditPackManagementData() {
     db.documentCreditTransaction.aggregate({
       _sum: { amount: true },
     }),
+    db.documentCreditPurchase.groupBy({
+      by: ["status"],
+      where: { betaAcquisition: false },
+      _count: { _all: true },
+    }),
+    db.documentCreditPurchase.aggregate({
+      where: { betaAcquisition: false, status: "COMPLETED" },
+      _count: { _all: true },
+      _sum: { creditAmountSnapshot: true },
+    }),
+    db.documentCreditPurchase.groupBy({
+      by: ["packId"],
+      where: { status: "COMPLETED" },
+      _count: { _all: true },
+    }),
   ]);
   return {
     packs: packs.map(({ price, _count, ...pack }) => ({
       ...pack,
       price: price.toFixed(4),
       purchases: _count.purchases,
+      completedPurchases:
+        packPopularity.find((entry) => entry.packId === pack.id)?._count._all ?? 0,
     })),
     outstandingPurchasedCredits: ledger._sum.amount ?? 0,
+    paidTestPurchases: paidCompleted._count._all,
+    paidTestCreditsGranted: paidCompleted._sum.creditAmountSnapshot ?? 0,
+    paidPurchaseStatuses: purchaseStatuses.map(({ status, _count }) => ({
+      status,
+      count: _count._all,
+    })),
     canManage: hasPlatformCapability(
       context.membership,
       PLATFORM_CAPABILITIES.MANAGE_PLATFORM_PLANS,
@@ -101,8 +125,14 @@ export async function getDocumentCreditsPageData() {
       transaction,
       context.workspace.id,
     );
-    const [purchasedBalance, subscription, packs, acquisitions, entitlements] =
-      await Promise.all([
+    const [
+      purchasedBalance,
+      subscription,
+      packs,
+      acquisitions,
+      purchases,
+      entitlements,
+    ] = await Promise.all([
         getPurchasedCreditBalance(transaction, context.workspace.id),
         transaction.subscription.findUnique({
           where: { workspaceId: context.workspace.id },
@@ -124,6 +154,27 @@ export async function getDocumentCreditsPageData() {
           where: { workspaceId: context.workspace.id, betaAcquisition: true },
           select: { pack: { select: { code: true } } },
         }),
+        transaction.documentCreditPurchase.findMany({
+          where: { workspaceId: context.workspace.id },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          take: 20,
+          select: {
+            id: true,
+            status: true,
+            betaAcquisition: true,
+            creditAmountSnapshot: true,
+            priceSnapshot: true,
+            currencySnapshot: true,
+            createdAt: true,
+            completedAt: true,
+            pack: { select: { code: true, name: true } },
+            payments: {
+              orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+              take: 1,
+              select: { internalReference: true, status: true },
+            },
+          },
+        }),
         resolveWorkspaceEntitlementsInTransaction(
           transaction,
           context.workspace.id,
@@ -136,6 +187,7 @@ export async function getDocumentCreditsPageData() {
       subscription,
       packs,
       acquisitions,
+      purchases,
       entitlements,
     };
   }, commercialTransactionOptions);
@@ -161,6 +213,11 @@ export async function getDocumentCreditsPageData() {
       alreadyAcquired: data.acquisitions.some(
         (purchase) => purchase.pack.code === pack.code,
       ),
+    })),
+    purchases: data.purchases.map(({ priceSnapshot, payments, ...purchase }) => ({
+      ...purchase,
+      priceSnapshot: priceSnapshot.toFixed(2),
+      latestPayment: payments[0] ?? null,
     })),
     canAcquire: hasCapability(
       context.membership,

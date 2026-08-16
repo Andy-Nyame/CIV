@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
+import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 
 import { PaymentNotFoundError } from "./errors";
@@ -31,19 +32,31 @@ export async function processPaystackWebhook(
       event.eventIdentifier ?? event.providerReference ?? payloadHash,
     ].join(":"),
   );
-  const record = await db.paymentProviderEvent.upsert({
-    where: { eventKey },
-    create: {
-      provider: provider.provider,
-      eventKey,
-      payloadHash,
-      eventType: event.eventType,
-      providerReference: event.providerReference,
-      safeData: event.safeData,
-    },
-    update: {},
-    select: { id: true, status: true },
-  });
+  let record;
+  try {
+    record = await db.paymentProviderEvent.create({
+      data: {
+        provider: provider.provider,
+        eventKey,
+        payloadHash,
+        eventType: event.eventType,
+        providerReference: event.providerReference,
+        safeData: event.safeData,
+      },
+      select: { id: true, status: true },
+    });
+  } catch (error) {
+    if (
+      !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+      error.code !== "P2002"
+    ) {
+      throw error;
+    }
+    record = await db.paymentProviderEvent.findUniqueOrThrow({
+      where: { eventKey },
+      select: { id: true, status: true },
+    });
+  }
   const claimed = await db.paymentProviderEvent.updateMany({
     where: { id: record.id, status: { in: ["RECEIVED", "FAILED"] } },
     data: { status: "PROCESSING" },

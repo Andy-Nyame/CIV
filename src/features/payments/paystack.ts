@@ -106,6 +106,7 @@ export class PaystackPaymentProvider implements PaymentProviderClient {
         currency: input.currency,
         reference: input.reference,
         callback_url: input.callbackUrl,
+        ...(input.channels ? { channels: input.channels } : {}),
         metadata: JSON.stringify(input.metadata),
       }),
     });

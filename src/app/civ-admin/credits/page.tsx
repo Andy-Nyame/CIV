@@ -9,6 +9,10 @@ import { getPlatformCreditPackManagementData } from "@/features/commercial/queri
 
 export const metadata: Metadata = { title: "Document Credit Packs" };
 
+function label(value: string) {
+  return value.toLowerCase().split("_").map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(" ");
+}
+
 export default async function PlatformCreditPacksPage() {
   const data = await getPlatformCreditPackManagementData();
 
@@ -18,14 +22,15 @@ export default async function PlatformCreditPacksPage() {
         title="Document Credit Packs"
         description="Manage carry-forward credit packs and review real acquisition totals."
       />
-      <section className="mt-6 grid gap-4 sm:grid-cols-2">
+      <p className="mt-6 rounded-xl border border-civ-blue bg-active p-4 text-sm leading-6 text-text">Payment metrics on this page are Paystack Test Mode operational data, not real revenue.</p>
+      <section className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-xl border border-border bg-surface p-5">
           <p className="text-sm text-muted">Outstanding purchased credits</p>
           <p className="mt-1 text-3xl font-bold text-text">
             {data.outstandingPurchasedCredits.toLocaleString("en-GH")}
           </p>
           <p className="mt-2 text-xs leading-5 text-muted">
-            Derived from the append-only ledger. Beta revenue is not reported because no payment processing exists.
+            Derived from the append-only ledger across beta and verified Test Mode acquisitions.
           </p>
         </div>
         <div className="rounded-xl border border-border bg-surface p-5">
@@ -35,7 +40,19 @@ export default async function PlatformCreditPacksPage() {
             Historical purchase snapshots remain unchanged when a pack is edited.
           </p>
         </div>
+        <div className="rounded-xl border border-border bg-surface p-5">
+          <p className="text-sm text-muted">Completed paid test purchases</p>
+          <p className="mt-1 text-3xl font-bold text-text">{data.paidTestPurchases.toLocaleString("en-GH")}</p>
+          <p className="mt-2 text-xs leading-5 text-muted">Successful purchase records only; not revenue.</p>
+        </div>
+        <div className="rounded-xl border border-border bg-surface p-5">
+          <p className="text-sm text-muted">Paid test credits granted</p>
+          <p className="mt-1 text-3xl font-bold text-text">{data.paidTestCreditsGranted.toLocaleString("en-GH")}</p>
+          <p className="mt-2 text-xs leading-5 text-muted">Credit quantity from completed paid purchase snapshots.</p>
+        </div>
       </section>
+
+      {data.paidPurchaseStatuses.length ? <section className="mt-4 flex flex-wrap gap-2" aria-label="Paid test purchase statuses">{data.paidPurchaseStatuses.map((entry) => <span key={entry.status} className="rounded-full bg-surface-muted px-3 py-1.5 text-xs font-semibold text-muted">{label(entry.status)}: {entry.count.toLocaleString("en-GH")}</span>)}</section> : null}
 
       {data.canManage ? (
         <details className="mt-6 rounded-xl border border-border bg-surface p-5">
@@ -60,6 +77,7 @@ export default async function PlatformCreditPacksPage() {
                 <div className="flex justify-between gap-4"><dt className="text-muted">Credits</dt><dd className="font-semibold text-text">{pack.creditAmount.toLocaleString("en-GH")}</dd></div>
                 <div className="flex justify-between gap-4"><dt className="text-muted">Beta price</dt><dd className="font-semibold text-text">{pack.currency === "GHS" ? "GH₵" : pack.currency} {Number(pack.price).toLocaleString("en-GH")}</dd></div>
                 <div className="flex justify-between gap-4"><dt className="text-muted">Acquisitions</dt><dd className="font-semibold text-text">{pack.purchases.toLocaleString("en-GH")}</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-muted">Completed</dt><dd className="font-semibold text-text">{pack.completedPurchases.toLocaleString("en-GH")}</dd></div>
                 <div className="flex justify-between gap-4"><dt className="text-muted">State</dt><dd className="font-semibold text-text">{pack.isActive ? "Active" : "Inactive"} · {pack.isPublic ? "Public" : "Hidden"}</dd></div>
               </dl>
             </article>

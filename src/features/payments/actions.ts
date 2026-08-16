@@ -84,12 +84,16 @@ export async function verifyPaymentAction(
     });
     revalidatePath("/app/settings/billing");
     revalidatePath("/app/settings/billing/payment-return");
+    revalidatePath("/app/settings/credits");
+    revalidatePath("/app/activity");
     return {
       success: true,
       status: result.status,
       message:
-        result.status === "SUCCEEDED"
-          ? "Payment verified in Paystack Test Mode. No entitlement was granted."
+        result.status === "SUCCEEDED" && result.fulfillment
+          ? `${result.fulfillment.credits.toLocaleString("en-GH")} document credits are now available in this workspace.`
+          : result.status === "SUCCEEDED"
+            ? "Payment verified in Paystack Test Mode. This payment has no entitlement."
           : `Paystack reports this payment as ${result.status.toLowerCase()}.`,
     };
   } catch (error) {

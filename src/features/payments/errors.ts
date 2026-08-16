@@ -39,3 +39,17 @@ export class PaymentVerificationError extends Error {
     this.name = "PaymentVerificationError";
   }
 }
+
+export class DocumentCreditPaymentError extends Error {
+  constructor(
+    public readonly reason:
+      | "PACK_UNAVAILABLE"
+      | "FREE_PACK"
+      | "INITIALIZATION_IN_PROGRESS"
+      | "PURCHASE_UNAVAILABLE"
+      | "FULFILLMENT_MISMATCH",
+  ) {
+    super("The document credit purchase could not be completed.");
+    this.name = "DocumentCreditPaymentError";
+  }
+}

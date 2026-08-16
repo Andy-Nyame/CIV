@@ -26,6 +26,8 @@
     "test:trials:http": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-trial-routes.ts",
     "test:payments": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test --test-concurrency=1 src/features/payments/*.test.ts",
     "test:payments:http": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-payment-routes.ts",
+    "test:credit-payments": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test --test-concurrency=1 src/features/payments/credit-payments.test.ts",
+    "test:credit-payments:http": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-credit-payment-routes.ts",
     "payments:check:paystack": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-paystack-connectivity.ts",
     "payments:check:initialize": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-paystack-initialization.ts",
     "storage:check:r2": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-r2-connectivity.ts",

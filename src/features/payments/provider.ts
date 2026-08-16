@@ -3,6 +3,7 @@ import "server-only";
 export type InitializeProviderPaymentInput = {
   amountMinor: number;
   callbackUrl: string;
+  channels?: readonly ["card", "mobile_money"];
   currency: "GHS";
   email: string;
   metadata: Record<string, string>;

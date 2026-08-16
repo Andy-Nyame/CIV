@@ -94,8 +94,10 @@ export async function acquireBetaDocumentCredits(input: {
         metadata: {
           packCode: pack.code,
           credits: pack.creditAmount,
-          betaPrice: pack.price.toFixed(4),
+          amount: pack.price.toFixed(4),
           currency: pack.currency,
+          acquisitionMethod: "BETA",
+          paymentReference: null,
         },
       });
       const balance = await getPurchasedCreditBalance(

@@ -39,7 +39,7 @@ export default async function BillingPage() {
           <div>
             <p className="text-sm font-semibold text-link">Payment system</p>
             <h2 id="billing-mode-title" className="mt-1 text-xl font-bold text-text">Paystack Test Mode</h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">D.1 records and verifies test payments only. It cannot grant document credits, change plans, or process live money.</p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">Verified Document Credit payments can now fulfill their linked purchase exactly once. Infrastructure test payments still grant no entitlement, and live money remains disabled.</p>
           </div>
           <span className="rounded-full bg-surface px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-link">{data.paymentMode}</span>
         </div>
@@ -63,10 +63,10 @@ export default async function BillingPage() {
         {data.payments.length ? (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[44rem] text-left text-sm">
-              <thead className="bg-surface-muted text-muted"><tr><th className="px-5 py-3 font-semibold">Reference</th><th className="px-5 py-3 font-semibold">Purpose</th><th className="px-5 py-3 font-semibold">Amount</th><th className="px-5 py-3 font-semibold">Status</th><th className="px-5 py-3 font-semibold">Created</th></tr></thead>
+              <thead className="bg-surface-muted text-muted"><tr><th className="px-5 py-3 font-semibold">Reference</th><th className="px-5 py-3 font-semibold">Purpose</th><th className="px-5 py-3 font-semibold">Amount</th><th className="px-5 py-3 font-semibold">Status</th><th className="px-5 py-3 font-semibold">Fulfillment</th><th className="px-5 py-3 font-semibold">Created</th></tr></thead>
               <tbody className="divide-y divide-border">
                 {data.payments.map((payment) => (
-                  <tr key={payment.id}><td className="px-5 py-4 font-mono text-xs text-text">{payment.internalReference}</td><td className="px-5 py-4 text-text">{label(payment.purpose)}</td><td className="px-5 py-4 text-text">{money(payment.amount, payment.currency)}</td><td className="px-5 py-4"><span className="rounded-full bg-surface-muted px-2.5 py-1 text-xs font-bold text-muted">{label(payment.status)}</span></td><td className="px-5 py-4 text-muted"><LocalDateTime value={payment.createdAt.toISOString()} /></td></tr>
+                  <tr key={payment.id}><td className="px-5 py-4 font-mono text-xs text-text">{payment.internalReference}</td><td className="px-5 py-4 text-text">{label(payment.purpose)}</td><td className="px-5 py-4 text-text">{money(payment.amount, payment.currency)}</td><td className="px-5 py-4"><span className="rounded-full bg-surface-muted px-2.5 py-1 text-xs font-bold text-muted">{label(payment.status)}</span></td><td className="px-5 py-4 text-text">{payment.documentCreditPurchase ? `${label(payment.documentCreditPurchase.status)} · ${payment.documentCreditPurchase.creditAmountSnapshot.toLocaleString("en-GH")} credits` : "Not applicable"}</td><td className="px-5 py-4 text-muted"><LocalDateTime value={payment.createdAt.toISOString()} /></td></tr>
                 ))}
               </tbody>
             </table>
