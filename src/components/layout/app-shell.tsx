@@ -11,6 +11,10 @@ import type { WorkspaceContext } from "@/features/workspaces/types";
 import { UserProfile } from "./profile-placeholder";
 import { WorkspaceSwitcher } from "./workspace-switcher";
 import { ActiveWorkspacePreferenceRepair } from "./active-workspace-preference-repair";
+import {
+  WorkspaceCommercialIndicator,
+  type WorkspaceCommercialIndicatorData,
+} from "./workspace-commercial-indicator";
 
 type AppShellProps = {
   children: ReactNode;
@@ -23,6 +27,7 @@ type AppShellProps = {
   canViewTeam: boolean;
   canViewActivity: boolean;
   privateProfilePhotoUrl: string | null;
+  workspaceCommercialIndicator: WorkspaceCommercialIndicatorData;
 };
 
 export function AppShell({
@@ -32,6 +37,7 @@ export function AppShell({
   user,
   workspaceContext,
   privateProfilePhotoUrl,
+  workspaceCommercialIndicator,
 }: AppShellProps) {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
 
@@ -80,6 +86,7 @@ export function AppShell({
         <CivLogo href="/app" showMotto />
         <div className="mt-8 grid gap-4">
           <WorkspaceSwitcher workspaceContext={workspaceContext} />
+          <WorkspaceCommercialIndicator indicator={workspaceCommercialIndicator} />
           <CreateDocumentMenu />
         </div>
         <div className="mt-6">
@@ -150,6 +157,7 @@ export function AppShell({
             </div>
             <div className="mt-7 grid gap-5">
               <WorkspaceSwitcher workspaceContext={workspaceContext} />
+              <WorkspaceCommercialIndicator indicator={workspaceCommercialIndicator} />
               <CreateDocumentMenu />
               <AppNavigation
                 canViewActivity={canViewActivity}

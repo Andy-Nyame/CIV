@@ -6,6 +6,7 @@ import {
   hasCapability,
 } from "@/features/authorization/capabilities";
 import { requireUser } from "@/features/auth/session";
+import { getWorkspaceCommercialSummary } from "@/features/commercial/workspace-summary";
 import { getPersonalProfilePhotoUrl } from "@/features/profile/queries";
 import { getWorkspaceContextForUser } from "@/features/workspaces/access";
 
@@ -18,11 +19,38 @@ export default async function CivAppLayout({ children }: LayoutProps<"/app">) {
   }
 
   const privateProfilePhotoUrl = await getPersonalProfilePhotoUrl(user.id);
+  const commercialSummary = await getWorkspaceCommercialSummary(
+    workspaceContext.current.id,
+  );
+  const trialDaysRemaining = commercialSummary.activeTrial
+    ? Math.max(
+        1,
+        Math.ceil(
+          (commercialSummary.activeTrial.endsAt.getTime() -
+            commercialSummary.resolvedAt.getTime()) /
+            (24 * 60 * 60 * 1000),
+        ),
+      )
+    : null;
+  const workspaceCommercialIndicator = {
+    planLabel: commercialSummary.activeTrial
+      ? `${commercialSummary.effectivePlan.name} Trial`
+      : commercialSummary.effectivePlan.name,
+    detail:
+      trialDaysRemaining !== null
+        ? trialDaysRemaining === 1
+          ? "1 day remaining"
+          : `${trialDaysRemaining} days remaining`
+        : commercialSummary.totalAvailable === null
+          ? "Unlimited available"
+          : `${commercialSummary.totalAvailable.toLocaleString("en-GH")} available`,
+  };
 
   return (
     <AppShell
       user={user}
       privateProfilePhotoUrl={privateProfilePhotoUrl}
+      workspaceCommercialIndicator={workspaceCommercialIndicator}
       workspaceContext={workspaceContext}
       canViewTeam={hasCapability(
         workspaceContext.current,
