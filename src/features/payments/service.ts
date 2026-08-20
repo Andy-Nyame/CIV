@@ -241,7 +241,10 @@ export async function initializeBillingTestPayment(
   input: { actorUserId: string; workspaceId: string; email: string },
   provider?: PaymentProviderClient,
 ) {
-  if (process.env.APP_ENV !== "development") {
+  if (
+    process.env.APP_ENV !== "development" ||
+    process.env.PAYSTACK_MODE !== "test"
+  ) {
     throw new PaymentConfigurationError();
   }
   return initializePayment(

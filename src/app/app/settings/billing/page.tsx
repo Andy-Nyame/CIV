@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { BillingTestControl } from "@/components/ui/billing-test-control";
 import { LocalDateTime } from "@/components/ui/local-date-time";
 import { PageHeading } from "@/components/ui/page-heading";
 import { RecurringCancellationControl } from "@/components/ui/recurring-subscription-controls";
@@ -57,17 +56,11 @@ export default async function BillingPage() {
         ) : null}
       </section>
 
-      {data.recurringBilling.connected && data.recurringBilling.currentPeriodEnd && data.canInitializeTest && !data.recurringBilling.cancelAtPeriodEnd ? (
+      {data.recurringBilling.connected && data.recurringBilling.currentPeriodEnd && data.canManageSubscription && !data.recurringBilling.cancelAtPeriodEnd ? (
         <div className="mt-7">
           <RecurringCancellationControl planName={data.normalPlan.name} periodEnd={data.recurringBilling.currentPeriodEnd.toISOString()} />
         </div>
       ) : null}
-
-      {data.canInitializeTest ? (
-        <div className="mt-7"><BillingTestControl /></div>
-      ) : (
-        <p className="mt-7 rounded-xl border border-border bg-surface p-5 text-sm text-muted">You can review billing history. Only the Workspace Owner can initialize the development test checkout.</p>
-      )}
 
       <section className="mt-8 overflow-hidden rounded-xl border border-border bg-surface" aria-labelledby="payment-history-title">
         <div className="border-b border-border px-5 py-4">

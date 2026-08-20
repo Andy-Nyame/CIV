@@ -15,10 +15,7 @@ import {
   PaymentVerificationError,
   SubscriptionPaymentError,
 } from "./errors";
-import {
-  initializeBillingTestPayment,
-  verifyPaymentByReference,
-} from "./service";
+import { verifyPaymentByReference } from "./service";
 import {
   cancelRecurringSubscription,
   initializeRecurringSubscription,
@@ -116,32 +113,6 @@ export async function cancelRecurringSubscriptionAction(
       message: result.idempotent
         ? "This subscription is already scheduled to end."
         : `The recurring subscription will end at the close of the current billing period on ${result.effectiveAt.toLocaleDateString("en-GH")}.`,
-    };
-  } catch (error) {
-    return safePaymentError(error);
-  }
-}
-
-export async function initializeBillingTestPaymentAction(
-  _previous: PaymentActionState,
-  _formData: FormData,
-): Promise<PaymentActionState> {
-  void _previous;
-  void _formData;
-  try {
-    const context = await requireCapability(CAPABILITIES.MANAGE_SUBSCRIPTION);
-    if (!context.user.email) throw new PaymentValidationError();
-    const result = await initializeBillingTestPayment({
-      actorUserId: context.user.id,
-      workspaceId: context.workspace.id,
-      email: context.user.email,
-    });
-    revalidatePath("/app/settings/billing");
-    return {
-      success: true,
-      message: "Paystack Test checkout initialized. No CIV entitlement was granted.",
-      authorizationUrl: result.authorizationUrl,
-      reference: result.reference,
     };
   } catch (error) {
     return safePaymentError(error);

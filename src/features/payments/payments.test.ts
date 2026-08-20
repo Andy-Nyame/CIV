@@ -82,6 +82,39 @@ test("configuration enforces test-only keys, official base URL, and safe app ori
   }
 });
 
+test("the retained infrastructure checkout service rejects non-development or non-test environments", async () => {
+  const originalAppEnv = process.env.APP_ENV;
+  const originalPaystackMode = process.env.PAYSTACK_MODE;
+  try {
+    process.env.APP_ENV = "production";
+    process.env.PAYSTACK_MODE = "test";
+    await assert.rejects(
+      initializeBillingTestPayment({
+        actorUserId: randomUUID(),
+        workspaceId: randomUUID(),
+        email: "billing@example.invalid",
+      }, new MockProvider()),
+      PaymentConfigurationError,
+    );
+
+    process.env.APP_ENV = "development";
+    process.env.PAYSTACK_MODE = "live";
+    await assert.rejects(
+      initializeBillingTestPayment({
+        actorUserId: randomUUID(),
+        workspaceId: randomUUID(),
+        email: "billing@example.invalid",
+      }, new MockProvider()),
+      PaymentConfigurationError,
+    );
+  } finally {
+    if (originalAppEnv === undefined) delete process.env.APP_ENV;
+    else process.env.APP_ENV = originalAppEnv;
+    if (originalPaystackMode === undefined) delete process.env.PAYSTACK_MODE;
+    else process.env.PAYSTACK_MODE = originalPaystackMode;
+  }
+});
+
 test("GHS Decimal conversion never uses floating point", () => {
   assert.equal(toMinorUnits("10.00", "GHS"), 1000);
   assert.equal(toMinorUnits("0.01", "GHS"), 1);

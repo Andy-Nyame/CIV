@@ -110,8 +110,11 @@ try {
   });
   const billingPage = await billingResponse.text();
   assert.equal(billingResponse.status, 200);
-  for (const expected of ["Paystack Test Mode", "Infrastructure test checkout", reference, "cannot grant document credits"]) {
+  for (const expected of ["Paystack Test Mode", reference, "Infrastructure only"]) {
     assert.match(billingPage, new RegExp(expected));
+  }
+  for (const removedControl of ["Infrastructure test checkout", "Initialize Test Checkout", "validate the checkout connection"]) {
+    assert.doesNotMatch(billingPage, new RegExp(removedControl));
   }
 
   const callbackResponse = await fetch(

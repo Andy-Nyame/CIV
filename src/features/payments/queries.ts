@@ -87,7 +87,7 @@ export async function getWorkspaceBillingPageData() {
     effectivePlan: planData.effectivePlan,
     subscriptionStatus: planData.subscriptionStatus,
     recurringBilling: planData.recurringBilling,
-    canInitializeTest: planData.canManageSubscription,
+    canManageSubscription: planData.canManageSubscription,
     paymentMode: config.mode,
     payments: payments.map(({ amount, ...payment }) => ({
       ...payment,
