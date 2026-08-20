@@ -15,6 +15,7 @@ import {
   InsufficientDocumentCapacityError,
 } from "./errors";
 import { getPurchasedCreditBalance } from "./ledger";
+import { commercialTransactionOptions } from "./locking";
 import { addUtcMonth, ensureCurrentAllowancePeriod } from "./periods";
 import {
   createDocumentCreditPack,
@@ -330,7 +331,7 @@ test("commercial plans, credit packs, allowance periods, and ledger remain autho
     const future = new Date(currentPeriod.periodEnd.getTime() + 1_000);
     await db.$transaction(async (transaction) => {
       await ensureCurrentAllowancePeriod(transaction, workspace.id, future);
-    });
+    }, commercialTransactionOptions);
     assert.ok(
       (await db.workspaceDocumentAllowancePeriod.count({
         where: { workspaceId: workspace.id },

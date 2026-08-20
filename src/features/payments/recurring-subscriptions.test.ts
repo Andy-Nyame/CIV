@@ -193,6 +193,60 @@ test("recurring checkout, activation, renewal, failure, cancellation, and isolat
       );
     }
 
+    const failedProvider = new RecurringProvider();
+    const failedCheckout = await initializeRecurringSubscription(
+      {
+        actorUserId: otherOwner.id,
+        workspaceId: otherWorkspace.id,
+        email: otherOwner.email!,
+        planCode: business.code,
+      },
+      failedProvider,
+    );
+    assert.equal(failedCheckout.kind, "INITIALIZED");
+    if (failedCheckout.kind !== "INITIALIZED") {
+      throw new Error("Missing failed-checkout fixture");
+    }
+    failedProvider.verification = {
+      transactionId: `failed-tx-${suffix}`,
+      domain: "test",
+      status: "pending",
+      reference: failedCheckout.reference,
+      amountMinor: 100,
+      currency: "GHS",
+      customerEmail: otherOwner.email,
+      channel: "card",
+      gatewayResponse: "Pending",
+      paidAt: null,
+      planCode: business.paystackPlanCode,
+      customerCode: `CUS_FAIL_${suffix.replaceAll("-", "").slice(0, 13)}`,
+    };
+    assert.equal(
+      (await verifyPaymentByReference(failedCheckout.reference, {
+        provider: failedProvider,
+      })).status,
+      "PROCESSING",
+    );
+    assert.equal(
+      (await db.subscription.findUniqueOrThrow({
+        where: { workspaceId: otherWorkspace.id },
+      })).planId,
+      free.id,
+    );
+    failedProvider.verification.status = "failed";
+    assert.equal(
+      (await verifyPaymentByReference(failedCheckout.reference, {
+        provider: failedProvider,
+      })).status,
+      "FAILED",
+    );
+    assert.equal(
+      (await db.subscription.findUniqueOrThrow({
+        where: { workspaceId: otherWorkspace.id },
+      })).planId,
+      free.id,
+    );
+
     const provider = new RecurringProvider();
     const initialized = await initializeRecurringSubscription(
       {
@@ -241,7 +295,27 @@ test("recurring checkout, activation, renewal, failure, cancellation, and isolat
       verifyPaymentByReference(initialized.reference, { provider }),
     );
     provider.verification.planCode = business.paystackPlanCode;
-    const verified = await verifyPaymentByReference(initialized.reference, { provider });
+    provider.event = {
+      eventType: "charge.success",
+      eventIdentifier: `tx-${suffix}`,
+      providerReference: initialized.reference,
+      safeData: {
+        transactionId: `tx-${suffix}`,
+        status: "success",
+        amountMinor: 100,
+        currency: "GHS",
+      },
+    };
+    const activationRaw = Buffer.from(`activation-${suffix}`);
+    const [verified] = await Promise.all([
+      verifyPaymentByReference(initialized.reference, { provider }),
+      processPaystackWebhook(
+        activationRaw,
+        "valid-recurring-signature",
+        provider,
+      ),
+      verifyPaymentByReference(initialized.reference, { provider }),
+    ]);
     assert.equal(verified.status, "SUCCEEDED");
     assert.equal(verified.fulfillment?.kind, "SUBSCRIPTION");
     const payment = await db.payment.findUniqueOrThrow({
@@ -259,6 +333,9 @@ test("recurring checkout, activation, renewal, failure, cancellation, and isolat
     assert.equal((await db.workspaceTrial.findUniqueOrThrow({ where: { id: trial.id } })).status, "CONVERTED");
     assert.equal(await getPurchasedCreditBalance(db, workspace.id), 73);
     assert.equal(await db.auditEvent.count({ where: { workspaceId: workspace.id, action: "SUBSCRIPTION_STARTED" } }), 1);
+    assert.equal(await db.auditEvent.count({ where: { workspaceId: workspace.id, action: "TRIAL_CONVERTED" } }), 1);
+    assert.equal(await db.platformAuditEvent.count({ where: { resourceId: active.id, action: "PLATFORM_SUBSCRIPTION_STARTED", actorUserId: null } }), 1);
+    assert.equal(await db.platformAuditEvent.count({ where: { resourceId: trial.id, action: "PLATFORM_TRIAL_CONVERTED", actorUserId: null } }), 1);
 
     const subscriptionCode = `SUB_${suffix.replaceAll("-", "").slice(0, 18)}`;
     providerSubscriptionCode = subscriptionCode;
@@ -287,12 +364,42 @@ test("recurring checkout, activation, renewal, failure, cancellation, and isolat
 
     const renewalStart = connected.currentPeriodEnd!;
     const renewalEnd = addUtcMonth(renewalStart);
+    const renewalInvoiceCode = `INV_${suffix.replaceAll("-", "").slice(0, 18)}`;
+    provider.event = {
+      eventType: "invoice.create",
+      eventIdentifier: `invoice.create:${renewalInvoiceCode}`,
+      providerReference: null,
+      safeData: {
+        invoiceCode: renewalInvoiceCode,
+        subscriptionCode,
+        amountMinor: 100,
+        currency: "GHS",
+        periodStart: renewalStart.toISOString(),
+        periodEnd: renewalEnd.toISOString(),
+        invoiceStatus: "pending",
+        paid: false,
+        paidAt: null,
+        nextPaymentDate: renewalEnd.toISOString(),
+        transactionReference: null,
+      },
+    };
+    await processPaystackWebhook(
+      Buffer.from(`renewal-created-${suffix}`),
+      "valid-recurring-signature",
+      provider,
+    );
+    assert.equal(
+      (await db.subscriptionBillingPeriod.findUniqueOrThrow({
+        where: { providerInvoiceCode: renewalInvoiceCode },
+      })).status,
+      "PENDING",
+    );
     provider.event = {
       eventType: "invoice.update",
-      eventIdentifier: `invoice.update:INV_${suffix}:success:paid:renew-${suffix}`,
+      eventIdentifier: `invoice.update:${renewalInvoiceCode}:success:paid:renew-${suffix}`,
       providerReference: `renew-${suffix}`,
       safeData: {
-        invoiceCode: `INV_${suffix.replaceAll("-", "").slice(0, 18)}`,
+        invoiceCode: renewalInvoiceCode,
         subscriptionCode,
         amountMinor: 100,
         currency: "GHS",
@@ -336,23 +443,62 @@ test("recurring checkout, activation, renewal, failure, cancellation, and isolat
     await processPaystackWebhook(Buffer.from(`failed-${suffix}`), "valid-recurring-signature", provider);
     assert.equal((await db.subscription.findUniqueOrThrow({ where: { id: active.id } })).status, "PAST_DUE");
     assert.equal((await db.subscription.findUniqueOrThrow({ where: { id: active.id } })).planId, business.id);
+    const fallbackEntitlements = await getWorkspaceEntitlements(workspace.id, {
+      now: new Date(renewalEnd.getTime() + 1),
+    });
+    assert.equal(fallbackEntitlements.effectivePlan.code, "FREE");
+    assert.equal((await db.subscription.findUniqueOrThrow({ where: { id: active.id } })).status, "CANCELLED");
+    assert.equal(await db.membership.count({ where: { workspaceId: workspace.id, status: "ACTIVE" } }), 4);
+    assert.equal(await getPurchasedCreditBalance(db, workspace.id), 73);
 
     await db.subscription.update({
       where: { id: active.id },
-      data: { status: "ACTIVE", currentPeriodEnd: renewalEnd, nextPaymentAt: renewalEnd },
+      data: {
+        planId: business.id,
+        status: "ACTIVE",
+        currentPeriodStart: renewalStart,
+        currentPeriodEnd: renewalEnd,
+        nextPaymentAt: renewalEnd,
+        cancelAtPeriodEnd: false,
+        pendingPlanId: null,
+        endsAt: null,
+      },
     });
-    const cancellation = await cancelRecurringSubscription(
-      { actorUserId: owner.id, workspaceId: workspace.id },
-      provider,
+    await assert.rejects(
+      initializeRecurringSubscription(
+        { actorUserId: owner.id, workspaceId: workspace.id, email: owner.email!, planCode: business.code },
+        provider,
+      ),
+      (error) => error instanceof SubscriptionPaymentError && error.reason === "ACTIVE_SUBSCRIPTION",
     );
-    assert.equal(cancellation.idempotent, false);
-    const repeatedCancellation = await cancelRecurringSubscription(
-      { actorUserId: owner.id, workspaceId: workspace.id },
-      provider,
+    const cancellations = await Promise.all([
+      cancelRecurringSubscription(
+        { actorUserId: owner.id, workspaceId: workspace.id },
+        provider,
+      ),
+      cancelRecurringSubscription(
+        { actorUserId: owner.id, workspaceId: workspace.id },
+        provider,
+      ),
+    ]);
+    assert.deepEqual(
+      cancellations.map((item) => item.idempotent).sort(),
+      [false, true],
     );
-    assert.equal(repeatedCancellation.idempotent, true);
     assert.equal(provider.disabled.length, 1);
     assert.equal(provider.disabled[0].subscriptionCode, subscriptionCode);
+    assert.equal(await db.auditEvent.count({ where: { workspaceId: workspace.id, action: "SUBSCRIPTION_CANCELLATION_SCHEDULED" } }), 1);
+    provider.event = {
+      eventType: "subscription.not_renew",
+      eventIdentifier: `subscription.not_renew:${subscriptionCode}`,
+      providerReference: null,
+      safeData: { subscriptionCode },
+    };
+    await processPaystackWebhook(
+      Buffer.from(`not-renewing-${suffix}`),
+      "valid-recurring-signature",
+      provider,
+    );
     provider.event = {
       eventType: "subscription.disable",
       eventIdentifier: `subscription.disable:${subscriptionCode}`,

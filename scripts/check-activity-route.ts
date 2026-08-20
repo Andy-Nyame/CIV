@@ -160,6 +160,9 @@ try {
   console.log("PASS activity route visibility, pagination, and workspace isolation");
 } finally {
   await db.auditEvent.deleteMany({ where: { workspaceId: workspace.id } });
+  await db.workspaceDocumentAllowancePeriod.deleteMany({
+    where: { workspaceId: workspace.id },
+  });
   await db.subscription.deleteMany({ where: { workspaceId: workspace.id } });
   await db.membership.deleteMany({ where: { workspaceId: workspace.id } });
   await db.workspace.delete({ where: { id: workspace.id } });

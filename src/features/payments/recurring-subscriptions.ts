@@ -451,7 +451,7 @@ export async function fulfillRecurringSubscriptionPayment(paymentId: string) {
         select: { name: true },
       });
       await recordPlatformAuditEvent(transaction, {
-        actorUserId: change.actorUserId,
+        actorUserId: null,
         action: "PLATFORM_TRIAL_CONVERTED",
         resourceType: "WORKSPACE_TRIAL",
         resourceId: trial.id,
@@ -521,7 +521,7 @@ export async function fulfillRecurringSubscriptionPayment(paymentId: string) {
       select: { name: true },
     });
     await recordPlatformAuditEvent(transaction, {
-      actorUserId: change.actorUserId,
+      actorUserId: null,
       action: "PLATFORM_SUBSCRIPTION_STARTED",
       resourceType: "SUBSCRIPTION",
       resourceId: subscription.id,
@@ -1026,7 +1026,12 @@ export async function cancelRecurringSubscription(
   input: { actorUserId: string; workspaceId: string },
   provider: PaymentProviderClient = getPaystackPaymentProvider(),
 ) {
-  const prepared = await db.$transaction(async (transaction) => {
+  const disableSubscription = provider.disableSubscription?.bind(provider);
+  if (!disableSubscription) {
+    throw new SubscriptionPaymentError("CANCELLATION_UNAVAILABLE");
+  }
+
+  return db.$transaction(async (transaction) => {
     await lockWorkspaceCommercialAccount(transaction, input.workspaceId);
     await requireSubscriptionManagerInTransaction(
       transaction,
@@ -1047,47 +1052,22 @@ export async function cancelRecurringSubscription(
       throw new SubscriptionPaymentError("CANCELLATION_UNAVAILABLE");
     }
     if (subscription.cancelAtPeriodEnd) {
-      return { subscription, idempotent: true as const };
+      return {
+        idempotent: true,
+        effectiveAt: subscription.currentPeriodEnd,
+      };
     }
-    return { subscription, idempotent: false as const };
-  }, transactionOptions);
-  if (prepared.idempotent) {
-    return {
-      idempotent: true,
-      effectiveAt: prepared.subscription.currentPeriodEnd!,
-    };
-  }
-  if (!provider.disableSubscription) {
-    throw new SubscriptionPaymentError("CANCELLATION_UNAVAILABLE");
-  }
-  await provider.disableSubscription({
-    subscriptionCode: prepared.subscription.providerSubscriptionCode!,
-  });
-  return db.$transaction(async (transaction) => {
-    await lockWorkspaceCommercialAccount(transaction, input.workspaceId);
-    await requireSubscriptionManagerInTransaction(
-      transaction,
-      input.actorUserId,
-      input.workspaceId,
-    );
-    const current = await transaction.subscription.findUniqueOrThrow({
-      where: { id: prepared.subscription.id },
-      include: { plan: true, fallbackPlan: true },
+
+    // Keep the workspace advisory lock through the bounded provider request so
+    // concurrent cancellation attempts cannot issue duplicate disable calls.
+    await disableSubscription({
+      subscriptionCode: subscription.providerSubscriptionCode,
     });
-    if (current.cancelAtPeriodEnd) {
-      return { idempotent: true, effectiveAt: current.currentPeriodEnd! };
-    }
-    if (
-      current.providerSubscriptionCode !==
-      prepared.subscription.providerSubscriptionCode
-    ) {
-      throw new SubscriptionPaymentError("CANCELLATION_UNAVAILABLE");
-    }
     await transaction.subscription.update({
-      where: { id: current.id },
+      where: { id: subscription.id },
       data: {
         cancelAtPeriodEnd: true,
-        pendingPlanId: current.fallbackPlanId,
+        pendingPlanId: subscription.fallbackPlanId,
       },
     });
     await recordAuditEvent(transaction, {
@@ -1095,13 +1075,16 @@ export async function cancelRecurringSubscription(
       actorUserId: input.actorUserId,
       action: "SUBSCRIPTION_CANCELLATION_SCHEDULED",
       resourceType: "SUBSCRIPTION",
-      resourceId: current.id,
+      resourceId: subscription.id,
       metadata: {
-        planCode: current.plan.code,
-        effectiveAt: current.currentPeriodEnd!.toISOString(),
-        nextPlan: current.fallbackPlan!.code,
+        planCode: subscription.plan.code,
+        effectiveAt: subscription.currentPeriodEnd.toISOString(),
+        nextPlan: subscription.fallbackPlan.code,
       },
     });
-    return { idempotent: false, effectiveAt: current.currentPeriodEnd! };
+    return {
+      idempotent: false,
+      effectiveAt: subscription.currentPeriodEnd,
+    };
   }, transactionOptions);
 }

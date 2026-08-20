@@ -108,7 +108,7 @@ try {
     "Document Credits",
     "Monthly allowance",
     "Purchased balance",
-    "Available beta credit packs",
+    "Available credit packs",
     "100 Document Credits",
   ]) {
     assert.match(creditsPage, new RegExp(text));

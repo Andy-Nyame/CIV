@@ -81,7 +81,8 @@ try {
   });
   const ownerPage = await ownerResponse.text();
   assert.equal(ownerResponse.status, 200);
-  assert.match(ownerPage, /All CIV plans are free during beta/);
+  assert.match(ownerPage, /Paystack recurring checkout is in Test Mode/);
+  assert.match(ownerPage, /configured paid plans use card-only monthly billing/);
   for (const planName of ["Free", "Starter", "Business", "Pro", "Enterprise"]) {
     assert.match(ownerPage, new RegExp(`>${planName}<`));
   }
