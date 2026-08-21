@@ -259,9 +259,10 @@ test("free/custom switching, paid-checkout boundary, downgrade safety, isolation
     const documentWorkspace = await createWorkspace("Documents", documentOwner.id, "BUSINESS");
     await db.document.createMany({
       data: [
-        ...Array.from({ length: 50 }, () => ({
+        ...Array.from({ length: 50 }, (_, index) => ({
           workspaceId: documentWorkspace.id,
           createdByUserId: documentOwner.id,
+          draftReference: `DRAFT-PLAN-I-${suffix.slice(0, 8)}-${index}`,
           type: "INVOICE" as const,
           status: "ISSUED" as const,
           issuedAt: new Date(),
@@ -269,14 +270,16 @@ test("free/custom switching, paid-checkout boundary, downgrade safety, isolation
         {
           workspaceId: documentWorkspace.id,
           createdByUserId: documentOwner.id,
+          draftReference: `DRAFT-PLAN-V-${suffix.slice(0, 8)}`,
           type: "INVOICE" as const,
           status: "VOIDED" as const,
           issuedAt: new Date(),
           voidedAt: new Date(),
         },
-        ...Array.from({ length: 3 }, () => ({
+        ...Array.from({ length: 3 }, (_, index) => ({
           workspaceId: documentWorkspace.id,
           createdByUserId: documentOwner.id,
+          draftReference: `DRAFT-PLAN-D-${suffix.slice(0, 8)}-${index}`,
           type: "INVOICE" as const,
           status: "DRAFT" as const,
         })),

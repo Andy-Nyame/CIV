@@ -138,13 +138,34 @@ export const auditMetadataSchemas = {
     .object({ memberDisplayName: displayNameSchema, role: roleSchema })
     .strict(),
   DOCUMENT_CREATED: z.object({}).strict(),
+  DOCUMENT_DRAFT_CREATED: z
+    .object({
+      documentType: z.enum(["INVOICE", "RECEIPT", "VAT_INVOICE"]),
+      draftReference: z.string().trim().min(8).max(40),
+    })
+    .strict(),
+  DOCUMENT_DRAFT_UPDATED: z
+    .object({
+      documentType: z.enum(["INVOICE", "RECEIPT", "VAT_INVOICE"]),
+      draftReference: z.string().trim().min(8).max(40),
+      total: z.string().regex(/^\d+(\.\d{1,4})?$/),
+      currency: z.string().length(3),
+    })
+    .strict(),
+  DOCUMENT_DRAFT_ARCHIVED: z
+    .object({ draftReference: z.string().trim().min(8).max(40) })
+    .strict(),
   DOCUMENT_ISSUED: z.object({}).strict(),
   DOCUMENT_VOIDED: z.object({}).strict(),
   DOCUMENT_STATUS_CHANGED: z.object({}).strict(),
-  CUSTOMER_CREATED: z.object({}).strict(),
-  CUSTOMER_UPDATED: z.object({}).strict(),
-  ITEM_CREATED: z.object({}).strict(),
-  ITEM_UPDATED: z.object({}).strict(),
+  CUSTOMER_CREATED: z.object({ customerName: displayNameSchema }).strict(),
+  CUSTOMER_UPDATED: z
+    .object({ customerName: displayNameSchema, changedFields: z.array(z.string().max(40)).max(10) })
+    .strict(),
+  ITEM_CREATED: z.object({ itemName: displayNameSchema }).strict(),
+  ITEM_UPDATED: z
+    .object({ itemName: displayNameSchema, changedFields: z.array(z.string().max(40)).max(10) })
+    .strict(),
   RATE_CREATED: z.object({}).strict(),
   RATE_UPDATED: z.object({}).strict(),
 } as const;

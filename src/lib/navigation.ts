@@ -4,6 +4,7 @@ export const appNavigation = [
   { label: "Home", href: "/app" },
   { label: "Documents", href: "/app/documents" },
   { label: "Customers", href: "/app/customers" },
+  { label: "Items & Services", href: "/app/items" },
   { label: "Vault", href: "/app/vault" },
   {
     label: "Team",

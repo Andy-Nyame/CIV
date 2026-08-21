@@ -38,6 +38,9 @@ const actionLabels: Record<AuditAction, string> = {
   MEMBER_REMOVED: "Member removed",
   MEMBER_LEFT_WORKSPACE: "Member left",
   DOCUMENT_CREATED: "Document created",
+  DOCUMENT_DRAFT_CREATED: "Draft created",
+  DOCUMENT_DRAFT_UPDATED: "Draft updated",
+  DOCUMENT_DRAFT_ARCHIVED: "Draft archived",
   DOCUMENT_ISSUED: "Document issued",
   DOCUMENT_VOIDED: "Document voided",
   DOCUMENT_STATUS_CHANGED: "Document status changed",
@@ -144,6 +147,12 @@ export function presentAuditEvent(event: PresentableAuditEvent) {
         return `${member} left this workspace.`;
       case "DOCUMENT_CREATED":
         return `${actor} created a document.`;
+      case "DOCUMENT_DRAFT_CREATED":
+        return `${actor} created draft ${metadataText(metadata, "draftReference", "document")}.`;
+      case "DOCUMENT_DRAFT_UPDATED":
+        return `${actor} updated draft ${metadataText(metadata, "draftReference", "document")}.`;
+      case "DOCUMENT_DRAFT_ARCHIVED":
+        return `${actor} archived draft ${metadataText(metadata, "draftReference", "document")}.`;
       case "DOCUMENT_ISSUED":
         return `${actor} issued a document.`;
       case "DOCUMENT_VOIDED":

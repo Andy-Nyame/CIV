@@ -39,8 +39,14 @@ enum InvitationStatus {
 enum DocumentType {
   INVOICE
   RECEIPT
+  VAT_INVOICE
   QUOTATION
   TAX_INVOICE
+}
+
+enum ItemServiceType {
+  ITEM
+  SERVICE
 }
 
 enum DocumentStatus {
@@ -225,6 +231,8 @@ model User {
   signatureProfile             SignatureProfile?
   sentInvitations              Invitation[]                  @relation("InvitationInviter")
   createdDocuments             Document[]                    @relation("DocumentCreator")
+  createdCustomers             Customer[]                    @relation("CustomerCreator")
+  createdCatalogueItems        ItemService[]                 @relation("ItemServiceCreator")
   auditEvents                  AuditEvent[]                  @relation("AuditActor")
 
   @@index([createdAt])
@@ -435,54 +443,67 @@ model Invitation {
 }
 
 model Customer {
-  id          String     @id @default(uuid()) @db.Uuid
-  workspaceId String     @db.Uuid
-  name        String     @db.VarChar(200)
-  email       String?    @db.VarChar(320)
-  phone       String?    @db.VarChar(50)
-  address     String?    @db.Text
-  businessTin String?    @db.VarChar(100)
-  notes       String?    @db.Text
-  createdAt   DateTime   @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime   @updatedAt @db.Timestamptz(3)
-  archivedAt  DateTime?  @db.Timestamptz(3)
-  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  documents   Document[]
+  id              String     @id @default(uuid()) @db.Uuid
+  workspaceId     String     @db.Uuid
+  createdByUserId String?    @db.Uuid
+  name            String     @db.VarChar(200)
+  email           String?    @db.VarChar(320)
+  phone           String?    @db.VarChar(50)
+  address         String?    @db.Text
+  businessTin     String?    @db.VarChar(100)
+  notes           String?    @db.Text
+  createdAt       DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime   @updatedAt @db.Timestamptz(3)
+  archivedAt      DateTime?  @db.Timestamptz(3)
+  workspace       Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  createdBy       User?      @relation("CustomerCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  documents       Document[]
 
   @@index([workspaceId])
   @@index([workspaceId, name])
   @@index([workspaceId, archivedAt])
+  @@index([createdByUserId])
 }
 
 model ItemService {
-  id          String         @id @default(uuid()) @db.Uuid
-  workspaceId String         @db.Uuid
-  name        String         @db.VarChar(200)
-  description String?        @db.Text
-  unitPrice   Decimal        @db.Decimal(19, 4)
-  createdAt   DateTime       @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime       @updatedAt @db.Timestamptz(3)
-  archivedAt  DateTime?      @db.Timestamptz(3)
-  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  lines       DocumentLine[]
+  id              String          @id @default(uuid()) @db.Uuid
+  workspaceId     String          @db.Uuid
+  createdByUserId String?         @db.Uuid
+  type            ItemServiceType @default(SERVICE)
+  name            String          @db.VarChar(200)
+  description     String?         @db.Text
+  unitPrice       Decimal         @db.Decimal(19, 4)
+  currency        String          @default("GHS") @db.Char(3)
+  unitLabel       String?         @db.VarChar(50)
+  sku             String?         @db.VarChar(100)
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @db.Timestamptz(3)
+  archivedAt      DateTime?       @db.Timestamptz(3)
+  workspace       Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  createdBy       User?           @relation("ItemServiceCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  lines           DocumentLine[]
 
+  @@unique([workspaceId, sku], map: "ItemService_workspace_sku_key", where: { sku: { not: null } })
   @@index([workspaceId])
   @@index([workspaceId, name])
   @@index([workspaceId, archivedAt])
+  @@index([workspaceId, sku])
+  @@index([createdByUserId])
 }
 
 model CustomRate {
-  id          String    @id @default(uuid()) @db.Uuid
-  workspaceId String    @db.Uuid
-  name        String    @db.VarChar(200)
-  type        RateType
-  scope       RateScope @default(CUSTOM)
-  value       Decimal   @db.Decimal(19, 6)
-  description String?   @db.Text
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  id            String         @id @default(uuid()) @db.Uuid
+  workspaceId   String         @db.Uuid
+  name          String         @db.VarChar(200)
+  type          RateType
+  scope         RateScope      @default(CUSTOM)
+  value         Decimal        @db.Decimal(19, 6)
+  description   String?        @db.Text
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime       @updatedAt @db.Timestamptz(3)
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  documentLines DocumentLine[]
 
   @@index([workspaceId])
   @@index([workspaceId, isActive])
@@ -547,12 +568,18 @@ model Document {
   taxVersionId    String?           @db.Uuid
   type            DocumentType
   status          DocumentStatus    @default(DRAFT)
+  draftReference  String            @unique @db.VarChar(40)
   documentNumber  String?           @db.VarChar(100)
   civDocumentId   String?           @unique @db.VarChar(100)
   currency        String            @default("GHS") @db.VarChar(3)
   issueDate       DateTime?         @db.Date
+  draftDate       DateTime          @default(now()) @db.Date
   dueDate         DateTime?         @db.Date
   notes           String?           @db.Text
+  subtotal        Decimal           @default(0) @db.Decimal(19, 4)
+  discountTotal   Decimal           @default(0) @db.Decimal(19, 4)
+  rateTotal       Decimal           @default(0) @db.Decimal(19, 4)
+  grandTotal      Decimal           @default(0) @db.Decimal(19, 4)
   createdAt       DateTime          @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
   archivedAt      DateTime?         @db.Timestamptz(3)
@@ -566,32 +593,43 @@ model Document {
   snapshot        DocumentSnapshot?
   files           DocumentFile[]
 
+  @@unique([workspaceId, type, documentNumber], map: "Document_official_number_key", where: { documentNumber: { not: null } })
   @@index([workspaceId])
   @@index([workspaceId, status])
   @@index([workspaceId, type])
   @@index([workspaceId, createdAt])
   @@index([workspaceId, archivedAt])
   @@index([workspaceId, documentNumber])
+  @@index([workspaceId, draftReference])
   @@index([customerId])
   @@index([createdByUserId])
   @@index([taxVersionId])
 }
 
 model DocumentLine {
-  id            String       @id @default(uuid()) @db.Uuid
-  documentId    String       @db.Uuid
-  catalogItemId String?      @db.Uuid
-  description   String       @db.Text
-  quantity      Decimal      @default(1) @db.Decimal(19, 6)
-  unitPrice     Decimal      @db.Decimal(19, 4)
-  lineOrder     Int
-  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
-  document      Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  catalogItem   ItemService? @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)
+  id                String       @id @default(uuid()) @db.Uuid
+  documentId        String       @db.Uuid
+  catalogItemId     String?      @db.Uuid
+  customRateId      String?      @db.Uuid
+  description       String       @db.Text
+  quantity          Decimal      @default(1) @db.Decimal(19, 6)
+  unitPrice         Decimal      @db.Decimal(19, 4)
+  lineSubtotal      Decimal      @db.Decimal(19, 4)
+  rateNameSnapshot  String?      @db.VarChar(200)
+  rateTypeSnapshot  RateType?
+  rateValueSnapshot Decimal?     @db.Decimal(19, 6)
+  rateTotal         Decimal      @default(0) @db.Decimal(19, 4)
+  lineTotal         Decimal      @db.Decimal(19, 4)
+  lineOrder         Int
+  createdAt         DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime     @updatedAt @db.Timestamptz(3)
+  document          Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  catalogItem       ItemService? @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)
+  customRate        CustomRate?  @relation(fields: [customRateId], references: [id], onDelete: SetNull)
 
   @@unique([documentId, lineOrder])
   @@index([catalogItemId])
+  @@index([customRateId])
 }
 
 model DocumentSnapshot {

@@ -1,15 +1,13 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
-import { FeaturePlaceholder } from "@/components/ui/feature-placeholder";
+import { PageHeading } from "@/components/ui/page-heading";
+import { getDocumentsPageData } from "@/features/documents/queries";
 
 export const metadata: Metadata = { title: "Documents" };
 
-export default function DocumentsPage() {
-  return (
-    <FeaturePlaceholder
-      title="Documents"
-      description="Your issued and draft documents will appear here."
-      emptyTitle="No documents yet"
-    />
-  );
+export default async function DocumentsPage({ searchParams }: PageProps<"/app/documents">) {
+  const { q = "" } = await searchParams; const data=await getDocumentsPageData(typeof q==="string"?q:"");
+  return <div><PageHeading title="Documents" description={`Structured drafts for ${data.context.workspace.name}. Issuance is not enabled yet.`} action={<Link href="/app/documents/new" className="inline-flex min-h-11 items-center rounded-lg bg-civ-blue px-5 text-sm font-semibold text-white">Create Draft</Link>}/><form className="mt-8 flex gap-2"><input aria-label="Search drafts" name="q" defaultValue={typeof q==="string"?q:""} className="min-h-11 min-w-0 flex-1 rounded-lg border border-border bg-surface px-3 text-sm text-text" placeholder="Search draft reference or customer"/><button className="min-h-11 rounded-lg border border-border px-4 text-sm font-semibold text-text">Search</button></form>
+    {data.documents.length?<div className="mt-4 overflow-x-auto rounded-xl border border-border bg-surface"><table className="w-full min-w-[48rem] text-left text-sm"><thead className="bg-surface-muted text-muted"><tr><th className="px-4 py-3">Draft</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Customer</th><th className="px-4 py-3">Creator</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Updated</th></tr></thead><tbody className="divide-y divide-border">{data.documents.map(d=><tr key={d.id}><td className="px-4 py-4"><Link className="font-semibold text-link" href={`/app/documents/${d.id}`}>{d.draftReference}</Link></td><td className="px-4 py-4 text-text">{d.type.replaceAll("_"," ")}</td><td className="px-4 py-4 text-text">{d.customer?.name??"—"}</td><td className="px-4 py-4 text-muted">{d.createdBy.name||d.createdBy.email||"Member"}</td><td className="px-4 py-4 font-semibold text-text">{d.currency} {d.grandTotal.toString()}</td><td className="px-4 py-4 text-muted">{d.updatedAt.toLocaleDateString("en-GH")}</td></tr>)}</tbody></table></div>:<div className="mt-6 rounded-xl border border-dashed border-border p-12 text-center"><h2 className="font-bold text-text">No drafts yet</h2><p className="mt-2 text-sm text-muted">Create a draft without consuming document allowance or credits.</p></div>}</div>;
 }

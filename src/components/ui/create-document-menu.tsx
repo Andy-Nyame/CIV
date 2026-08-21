@@ -1,8 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
 
-const documentTypes = ["Invoice", "Receipt", "Quotation", "VAT/Tax Invoice"];
+const documentTypes = [
+  { label: "Invoice", type: "INVOICE" },
+  { label: "Receipt", type: "RECEIPT" },
+  { label: "VAT Invoice", type: "VAT_INVOICE" },
+] as const;
 
 type CreateDocumentMenuProps = {
   compact?: boolean;
@@ -13,8 +17,6 @@ export function CreateDocumentMenu({
   compact = false,
   label = "Create",
 }: CreateDocumentMenuProps) {
-  const [message, setMessage] = useState<string | null>(null);
-
   return (
     <details className="group relative">
       <summary
@@ -39,28 +41,15 @@ export function CreateDocumentMenu({
         </p>
         <div className="grid gap-1">
           {documentTypes.map((documentType) => (
-            <button
-              key={documentType}
-              type="button"
+            <Link
+              key={documentType.type}
+              href={`/app/documents/new?type=${documentType.type}`}
               className="min-h-11 rounded-lg px-3 text-left text-sm font-semibold text-text hover:bg-hover"
-              onClick={() =>
-                setMessage(
-                  `${documentType} creation will be enabled in a later phase.`,
-                )
-              }
             >
-              {documentType}
-            </button>
+              {documentType.label}
+            </Link>
           ))}
         </div>
-        {message ? (
-          <p
-            className="mt-2 rounded-lg bg-surface-muted px-3 py-2 text-xs leading-5 text-muted"
-            role="status"
-          >
-            {message}
-          </p>
-        ) : null}
       </div>
     </details>
   );

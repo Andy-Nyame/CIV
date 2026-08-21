@@ -32,6 +32,8 @@
     "test:subscriptions:recurring": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test --test-concurrency=1 src/features/payments/recurring-subscriptions.test.ts",
     "test:payment-operations": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test --test-concurrency=1 src/features/payments/payment-operations.test.ts",
     "test:payment-operations:http": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-payment-routes.ts",
+    "test:create": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test --test-concurrency=1 src/features/documents/create-phase.test.ts",
+    "test:create:http": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-create-routes.ts",
     "payments:check:paystack": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-paystack-connectivity.ts",
     "payments:check:initialize": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-paystack-initialization.ts",
     "commercial:finalize:dev": "npm run db:check:dev && node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/finalize-development-commercial-configuration.ts",

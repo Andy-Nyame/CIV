@@ -2,6 +2,7 @@ export type WorkspaceOption = {
   id: string;
   name: string;
   type: "INDIVIDUAL" | "BUSINESS" | "ORGANIZATION";
+  currency: string;
   role: "OWNER" | "ADMIN" | "MANAGER" | "STAFF";
 };
 
