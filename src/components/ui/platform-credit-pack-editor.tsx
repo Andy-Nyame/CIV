@@ -31,7 +31,7 @@ function PackFields({ pack }: { pack?: CreditPack }) {
       <label className="grid gap-1.5 text-sm font-semibold text-text">Description<textarea name="description" defaultValue={pack?.description ?? ""} rows={2} maxLength={2000} className="rounded-lg border border-border bg-surface px-3 py-2 font-normal" /></label>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid gap-1.5 text-sm font-semibold text-text">Credits<input name="creditAmount" type="number" min="1" defaultValue={pack?.creditAmount ?? 100} className="min-h-11 rounded-lg border border-border bg-surface px-3 font-normal" /></label>
-        <label className="grid gap-1.5 text-sm font-semibold text-text">Beta price<input name="price" inputMode="decimal" defaultValue={pack?.price ?? "0.0000"} className="min-h-11 rounded-lg border border-border bg-surface px-3 font-normal" /></label>
+        <label className="grid gap-1.5 text-sm font-semibold text-text">Pack price<input name="price" inputMode="decimal" defaultValue={pack?.price ?? "0.0000"} className="min-h-11 rounded-lg border border-border bg-surface px-3 font-normal" /></label>
         <label className="grid gap-1.5 text-sm font-semibold text-text">Currency<input name="currency" defaultValue={pack?.currency ?? "GHS"} maxLength={3} className="min-h-11 rounded-lg border border-border bg-surface px-3 font-normal uppercase" /></label>
         <label className="grid gap-1.5 text-sm font-semibold text-text">Sort order<input name="sortOrder" type="number" min="0" defaultValue={pack?.sortOrder ?? 50} className="min-h-11 rounded-lg border border-border bg-surface px-3 font-normal" /></label>
       </div>

@@ -28,6 +28,13 @@ export class InsufficientDocumentCapacityError extends Error {
   }
 }
 
+export class DocumentCapacityConsumptionConflictError extends Error {
+  constructor() {
+    super("This document-capacity operation conflicts with an existing record.");
+    this.name = "DocumentCapacityConsumptionConflictError";
+  }
+}
+
 export class CommercialAuthorizationError extends Error {
   constructor() {
     super("This commercial action is not authorized.");

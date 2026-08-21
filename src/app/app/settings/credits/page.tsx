@@ -54,7 +54,7 @@ export default async function DocumentCreditsPage() {
       <section className="mt-9" aria-labelledby="packs-heading">
         <h2 id="packs-heading" className="text-xl font-bold text-text">Available credit packs</h2>
         <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">
-          GH₵0 beta packs require no checkout. Priced Test Mode packs require server-confirmed Paystack payment; the quantity and price always come from CIV’s pack configuration.
+          Pack quantity and price always come from CIV’s trusted configuration. Priced packs require server-confirmed Paystack payment; an explicitly configured GH₵0 promotional pack follows its separate guarded acquisition policy.
         </p>
         <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {data.packs.map((pack) => (

@@ -58,7 +58,10 @@ export async function getPlanSettingsPageData() {
           where: {
             isActive: true,
             isPublic: true,
-            isAvailableForNewWorkspaces: true,
+            OR: [
+              { isAvailableForNewWorkspaces: true },
+              { billingMode: "CUSTOM" },
+            ],
           },
           select: {
             code: true,

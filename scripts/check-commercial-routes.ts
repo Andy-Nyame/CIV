@@ -110,6 +110,10 @@ try {
     "Purchased balance",
     "Available credit packs",
     "100 Document Credits",
+    "GH₵30",
+    "GH₵125",
+    "GH₵200",
+    "GH₵750",
   ]) {
     assert.match(creditsPage, new RegExp(text));
   }

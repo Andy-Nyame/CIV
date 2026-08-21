@@ -75,7 +75,7 @@ export default async function PlatformCreditPacksPage() {
               <h2 className="mt-1 text-xl font-bold text-text">{pack.name}</h2>
               <dl className="mt-5 grid gap-2 text-sm">
                 <div className="flex justify-between gap-4"><dt className="text-muted">Credits</dt><dd className="font-semibold text-text">{pack.creditAmount.toLocaleString("en-GH")}</dd></div>
-                <div className="flex justify-between gap-4"><dt className="text-muted">Beta price</dt><dd className="font-semibold text-text">{pack.currency === "GHS" ? "GH₵" : pack.currency} {Number(pack.price).toLocaleString("en-GH")}</dd></div>
+                <div className="flex justify-between gap-4"><dt className="text-muted">Price</dt><dd className="font-semibold text-text">{pack.currency === "GHS" ? "GH₵" : pack.currency} {Number(pack.price).toLocaleString("en-GH")}</dd></div>
                 <div className="flex justify-between gap-4"><dt className="text-muted">Acquisitions</dt><dd className="font-semibold text-text">{pack.purchases.toLocaleString("en-GH")}</dd></div>
                 <div className="flex justify-between gap-4"><dt className="text-muted">Completed</dt><dd className="font-semibold text-text">{pack.completedPurchases.toLocaleString("en-GH")}</dd></div>
                 <div className="flex justify-between gap-4"><dt className="text-muted">State</dt><dd className="font-semibold text-text">{pack.isActive ? "Active" : "Inactive"} · {pack.isPublic ? "Public" : "Hidden"}</dd></div>

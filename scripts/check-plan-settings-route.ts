@@ -86,6 +86,11 @@ try {
   for (const planName of ["Free", "Starter", "Business", "Pro", "Enterprise"]) {
     assert.match(ownerPage, new RegExp(`>${planName}<`));
   }
+  for (const trustedPrice of ["GH₵50.00 / month", "GH₵100.00 / month", "GH₵200.00 / month"]) {
+    assert.match(ownerPage, new RegExp(trustedPrice));
+  }
+  assert.match(ownerPage, /Custom terms/);
+  assert.match(ownerPage, /not available for self-service checkout/);
   assert.equal(ownerPage.includes("Switch to"), true);
 
   const adminCookies = await signIn(users[1].email!, workspace.id);

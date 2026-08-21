@@ -15,7 +15,7 @@ export function DocumentCreditPackCard({ pack, canAcquire }: { pack: { code: str
       <h3 className="text-lg font-bold text-text">{pack.name}</h3>
       <p className="mt-1 text-sm font-semibold text-link">{pack.creditAmount.toLocaleString("en-GH")} carry-forward credits</p>
       {pack.description ? <p className="mt-3 text-sm leading-6 text-muted">{pack.description}</p> : null}
-      <p className="mt-4 text-sm font-semibold text-text">{isBetaFree ? "Beta price" : "Test price"}: {price}</p>
+      <p className="mt-4 text-sm font-semibold text-text">Price: {price}{!isBetaFree ? " · Paystack Test Mode" : " · Promotional"}</p>
       <div className="mt-auto pt-5">
         {isBetaFree && pack.alreadyAcquired ? <p className="text-sm font-semibold text-muted">Already acquired during beta</p> : canAcquire ? confirming ? (
           <form action={action} className="grid gap-3">

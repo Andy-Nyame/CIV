@@ -199,32 +199,33 @@ enum PaymentReconciliationStatus {
 }
 
 model User {
-  id                           String                      @id @default(uuid()) @db.Uuid
-  name                         String?                     @db.VarChar(200)
-  email                        String?                     @unique @db.VarChar(320)
-  emailVerified                DateTime?                   @db.Timestamptz(3)
-  image                        String?                     @db.Text
-  passwordHash                 String?                     @db.Text
-  passwordChangedAt            DateTime?                   @db.Timestamptz(3)
-  createdAt                    DateTime                    @default(now()) @db.Timestamptz(3)
-  updatedAt                    DateTime                    @updatedAt @db.Timestamptz(3)
+  id                           String                        @id @default(uuid()) @db.Uuid
+  name                         String?                       @db.VarChar(200)
+  email                        String?                       @unique @db.VarChar(320)
+  emailVerified                DateTime?                     @db.Timestamptz(3)
+  image                        String?                       @db.Text
+  passwordHash                 String?                       @db.Text
+  passwordChangedAt            DateTime?                     @db.Timestamptz(3)
+  createdAt                    DateTime                      @default(now()) @db.Timestamptz(3)
+  updatedAt                    DateTime                      @updatedAt @db.Timestamptz(3)
   accounts                     Account[]
   sessions                     Session[]
   memberships                  Membership[]
   platformMembership           PlatformMembership?
-  sentPlatformInvitations      PlatformInvitation[]        @relation("PlatformInvitationInviter")
-  platformAuditEvents          PlatformAuditEvent[]        @relation("PlatformAuditActor")
-  documentCreditPurchases      DocumentCreditPurchase[]    @relation("DocumentCreditPurchaseActor")
-  documentCreditTransactions   DocumentCreditTransaction[] @relation("DocumentCreditTransactionActor")
-  grantedWorkspaceTrials       WorkspaceTrial[]            @relation("WorkspaceTrialGrantor")
-  initiatedPayments            Payment[]                   @relation("PaymentInitiator")
-  initiatedPaymentRefunds      PaymentRefund[]             @relation("PaymentRefundInitiator")
-  initiatedSubscriptionChanges SubscriptionChange[]        @relation("SubscriptionChangeActor")
+  sentPlatformInvitations      PlatformInvitation[]          @relation("PlatformInvitationInviter")
+  platformAuditEvents          PlatformAuditEvent[]          @relation("PlatformAuditActor")
+  documentCreditPurchases      DocumentCreditPurchase[]      @relation("DocumentCreditPurchaseActor")
+  documentCreditTransactions   DocumentCreditTransaction[]   @relation("DocumentCreditTransactionActor")
+  documentCapacityConsumptions DocumentCapacityConsumption[] @relation("DocumentCapacityConsumptionActor")
+  grantedWorkspaceTrials       WorkspaceTrial[]              @relation("WorkspaceTrialGrantor")
+  initiatedPayments            Payment[]                     @relation("PaymentInitiator")
+  initiatedPaymentRefunds      PaymentRefund[]               @relation("PaymentRefundInitiator")
+  initiatedSubscriptionChanges SubscriptionChange[]          @relation("SubscriptionChangeActor")
   profilePhoto                 ProfilePhoto?
   signatureProfile             SignatureProfile?
-  sentInvitations              Invitation[]                @relation("InvitationInviter")
-  createdDocuments             Document[]                  @relation("DocumentCreator")
-  auditEvents                  AuditEvent[]                @relation("AuditActor")
+  sentInvitations              Invitation[]                  @relation("InvitationInviter")
+  createdDocuments             Document[]                    @relation("DocumentCreator")
+  auditEvents                  AuditEvent[]                  @relation("AuditActor")
 
   @@index([createdAt])
 }
@@ -345,36 +346,37 @@ model VerificationToken {
 }
 
 model Workspace {
-  id                         String                             @id @default(uuid()) @db.Uuid
-  name                       String                             @db.VarChar(200)
-  type                       WorkspaceType
-  country                    String                             @default("GH") @db.Char(2)
-  currency                   String                             @default("GHS") @db.Char(3)
-  email                      String?                            @db.VarChar(320)
-  phone                      String?                            @db.VarChar(50)
-  address                    String?                            @db.Text
-  registrationNumber         String?                            @db.VarChar(100)
-  businessTin                String?                            @db.VarChar(100)
-  createdAt                  DateTime                           @default(now()) @db.Timestamptz(3)
-  updatedAt                  DateTime                           @updatedAt @db.Timestamptz(3)
-  archivedAt                 DateTime?                          @db.Timestamptz(3)
-  logo                       WorkspaceLogo?
-  memberships                Membership[]
-  invitations                Invitation[]
-  customers                  Customer[]
-  catalogItems               ItemService[]
-  customRates                CustomRate[]
-  documents                  Document[]
-  files                      DocumentFile[]
-  auditEvents                AuditEvent[]
-  subscription               Subscription?
-  documentCreditPurchases    DocumentCreditPurchase[]
-  documentCreditTransactions DocumentCreditTransaction[]
-  documentAllowancePeriods   WorkspaceDocumentAllowancePeriod[]
-  trials                     WorkspaceTrial[]
-  payments                   Payment[]
-  paymentRefunds              PaymentRefund[]
-  subscriptionChanges        SubscriptionChange[]
+  id                           String                             @id @default(uuid()) @db.Uuid
+  name                         String                             @db.VarChar(200)
+  type                         WorkspaceType
+  country                      String                             @default("GH") @db.Char(2)
+  currency                     String                             @default("GHS") @db.Char(3)
+  email                        String?                            @db.VarChar(320)
+  phone                        String?                            @db.VarChar(50)
+  address                      String?                            @db.Text
+  registrationNumber           String?                            @db.VarChar(100)
+  businessTin                  String?                            @db.VarChar(100)
+  createdAt                    DateTime                           @default(now()) @db.Timestamptz(3)
+  updatedAt                    DateTime                           @updatedAt @db.Timestamptz(3)
+  archivedAt                   DateTime?                          @db.Timestamptz(3)
+  logo                         WorkspaceLogo?
+  memberships                  Membership[]
+  invitations                  Invitation[]
+  customers                    Customer[]
+  catalogItems                 ItemService[]
+  customRates                  CustomRate[]
+  documents                    Document[]
+  files                        DocumentFile[]
+  auditEvents                  AuditEvent[]
+  subscription                 Subscription?
+  documentCreditPurchases      DocumentCreditPurchase[]
+  documentCreditTransactions   DocumentCreditTransaction[]
+  documentAllowancePeriods     WorkspaceDocumentAllowancePeriod[]
+  documentCapacityConsumptions DocumentCapacityConsumption[]
+  trials                       WorkspaceTrial[]
+  payments                     Payment[]
+  paymentRefunds               PaymentRefund[]
+  subscriptionChanges          SubscriptionChange[]
 
   @@index([type])
   @@index([archivedAt])
@@ -887,51 +889,73 @@ model DocumentCreditTransaction {
 }
 
 model WorkspaceDocumentAllowancePeriod {
-  id          String    @id @default(uuid()) @db.Uuid
-  workspaceId String    @db.Uuid
-  planId      String    @db.Uuid
-  periodStart DateTime  @db.Timestamptz(3)
-  periodEnd   DateTime  @db.Timestamptz(3)
-  allowance   Int?
-  used        Int       @default(0)
-  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  plan        Plan      @relation(fields: [planId], references: [id], onDelete: Restrict)
+  id           String                        @id @default(uuid()) @db.Uuid
+  workspaceId  String                        @db.Uuid
+  planId       String                        @db.Uuid
+  periodStart  DateTime                      @db.Timestamptz(3)
+  periodEnd    DateTime                      @db.Timestamptz(3)
+  allowance    Int?
+  used         Int                           @default(0)
+  createdAt    DateTime                      @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime                      @updatedAt @db.Timestamptz(3)
+  workspace    Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  plan         Plan                          @relation(fields: [planId], references: [id], onDelete: Restrict)
+  consumptions DocumentCapacityConsumption[]
 
   @@unique([workspaceId, periodStart])
   @@index([workspaceId, periodEnd])
   @@index([planId])
 }
 
+model DocumentCapacityConsumption {
+  id                    String                           @id @default(uuid()) @db.Uuid
+  workspaceId           String                           @db.Uuid
+  allowancePeriodId     String                           @db.Uuid
+  sourceReference       String                           @unique @db.VarChar(255)
+  amount                Int
+  monthlyUsed           Int
+  purchasedUsed         Int
+  allowanceUsedAfter    Int
+  purchasedBalanceAfter Int
+  actorUserId           String?                          @db.Uuid
+  createdAt             DateTime                         @default(now()) @db.Timestamptz(3)
+  workspace             Workspace                        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  allowancePeriod       WorkspaceDocumentAllowancePeriod @relation(fields: [allowancePeriodId], references: [id], onDelete: Restrict)
+  actor                 User?                            @relation("DocumentCapacityConsumptionActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([allowancePeriodId])
+  @@index([actorUserId])
+}
+
 model Payment {
-  id                          String                     @id @default(uuid()) @db.Uuid
-  workspaceId                 String                     @db.Uuid
-  initiatedByUserId           String?                    @db.Uuid
+  id                          String                      @id @default(uuid()) @db.Uuid
+  workspaceId                 String                      @db.Uuid
+  initiatedByUserId           String?                     @db.Uuid
   purpose                     PaymentPurpose
   provider                    PaymentProvider
-  internalReference           String                     @unique @db.VarChar(100)
-  providerReference           String?                    @unique @db.VarChar(100)
-  amount                      Decimal                    @db.Decimal(19, 4)
-  currency                    String                     @db.Char(3)
-  status                      PaymentStatus              @default(PENDING)
+  internalReference           String                      @unique @db.VarChar(100)
+  providerReference           String?                     @unique @db.VarChar(100)
+  amount                      Decimal                     @db.Decimal(19, 4)
+  currency                    String                      @db.Char(3)
+  status                      PaymentStatus               @default(PENDING)
   metadata                    Json?
-  createdAt                   DateTime                   @default(now()) @db.Timestamptz(3)
-  updatedAt                   DateTime                   @updatedAt @db.Timestamptz(3)
-  completedAt                 DateTime?                  @db.Timestamptz(3)
-  failedAt                    DateTime?                  @db.Timestamptz(3)
-  cancelledAt                 DateTime?                  @db.Timestamptz(3)
+  createdAt                   DateTime                    @default(now()) @db.Timestamptz(3)
+  updatedAt                   DateTime                    @updatedAt @db.Timestamptz(3)
+  completedAt                 DateTime?                   @db.Timestamptz(3)
+  failedAt                    DateTime?                   @db.Timestamptz(3)
+  cancelledAt                 DateTime?                   @db.Timestamptz(3)
   reconciliationStatus        PaymentReconciliationStatus @default(NOT_REQUIRED)
-  reconciliationNote          String?                    @db.VarChar(255)
-  reconciledAt                DateTime?                  @db.Timestamptz(3)
-  documentCreditPurchaseId    String?                    @db.Uuid
-  subscriptionChangeId        String?                    @db.Uuid
-  subscriptionBillingPeriodId String?                    @unique @db.Uuid
-  workspace                   Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  initiatedBy                 User?                      @relation("PaymentInitiator", fields: [initiatedByUserId], references: [id], onDelete: SetNull)
-  documentCreditPurchase      DocumentCreditPurchase?    @relation(fields: [documentCreditPurchaseId], references: [id], onDelete: Restrict)
-  subscriptionChange          SubscriptionChange?        @relation(fields: [subscriptionChangeId], references: [id], onDelete: Restrict)
-  subscriptionBillingPeriod   SubscriptionBillingPeriod? @relation(fields: [subscriptionBillingPeriodId], references: [id], onDelete: Restrict)
+  reconciliationNote          String?                     @db.VarChar(255)
+  reconciledAt                DateTime?                   @db.Timestamptz(3)
+  documentCreditPurchaseId    String?                     @db.Uuid
+  subscriptionChangeId        String?                     @db.Uuid
+  subscriptionBillingPeriodId String?                     @unique @db.Uuid
+  workspace                   Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  initiatedBy                 User?                       @relation("PaymentInitiator", fields: [initiatedByUserId], references: [id], onDelete: SetNull)
+  documentCreditPurchase      DocumentCreditPurchase?     @relation(fields: [documentCreditPurchaseId], references: [id], onDelete: Restrict)
+  subscriptionChange          SubscriptionChange?         @relation(fields: [subscriptionChangeId], references: [id], onDelete: Restrict)
+  subscriptionBillingPeriod   SubscriptionBillingPeriod?  @relation(fields: [subscriptionBillingPeriodId], references: [id], onDelete: Restrict)
   attempts                    PaymentAttempt[]
   refunds                     PaymentRefund[]
 
@@ -944,31 +968,31 @@ model Payment {
 }
 
 model PaymentRefund {
-  id                    String                      @id @default(uuid()) @db.Uuid
-  paymentId             String                      @db.Uuid
-  workspaceId           String                      @db.Uuid
-  initiatedByUserId     String?                     @db.Uuid
-  provider              PaymentProvider
-  internalReference     String                      @unique @db.VarChar(100)
-  providerRefundId      String?                     @unique @db.VarChar(100)
-  providerRefundReference String?                   @unique @db.VarChar(100)
-  status                PaymentRefundStatus         @default(REQUESTED)
-  active                Boolean                     @default(true)
-  amount                Decimal                     @db.Decimal(19, 4)
-  currency              String                      @db.Char(3)
-  creditAmount          Int?
-  reason                String                      @db.VarChar(500)
-  safeFailureCode       String?                     @db.VarChar(100)
-  expectedAt            DateTime?                   @db.Timestamptz(3)
-  refundedAt            DateTime?                   @db.Timestamptz(3)
-  completedAt           DateTime?                   @db.Timestamptz(3)
-  failedAt              DateTime?                   @db.Timestamptz(3)
-  createdAt             DateTime                    @default(now()) @db.Timestamptz(3)
-  updatedAt             DateTime                    @updatedAt @db.Timestamptz(3)
-  payment               Payment                     @relation(fields: [paymentId], references: [id], onDelete: Restrict)
-  workspace             Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
-  initiatedBy           User?                       @relation("PaymentRefundInitiator", fields: [initiatedByUserId], references: [id], onDelete: SetNull)
-  creditLedgerEntry     DocumentCreditTransaction?
+  id                      String                     @id @default(uuid()) @db.Uuid
+  paymentId               String                     @db.Uuid
+  workspaceId             String                     @db.Uuid
+  initiatedByUserId       String?                    @db.Uuid
+  provider                PaymentProvider
+  internalReference       String                     @unique @db.VarChar(100)
+  providerRefundId        String?                    @unique @db.VarChar(100)
+  providerRefundReference String?                    @unique @db.VarChar(100)
+  status                  PaymentRefundStatus        @default(REQUESTED)
+  active                  Boolean                    @default(true)
+  amount                  Decimal                    @db.Decimal(19, 4)
+  currency                String                     @db.Char(3)
+  creditAmount            Int?
+  reason                  String                     @db.VarChar(500)
+  safeFailureCode         String?                    @db.VarChar(100)
+  expectedAt              DateTime?                  @db.Timestamptz(3)
+  refundedAt              DateTime?                  @db.Timestamptz(3)
+  completedAt             DateTime?                  @db.Timestamptz(3)
+  failedAt                DateTime?                  @db.Timestamptz(3)
+  createdAt               DateTime                   @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime                   @updatedAt @db.Timestamptz(3)
+  payment                 Payment                    @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  workspace               Workspace                  @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  initiatedBy             User?                      @relation("PaymentRefundInitiator", fields: [initiatedByUserId], references: [id], onDelete: SetNull)
+  creditLedgerEntry       DocumentCreditTransaction?
 
   @@unique([paymentId], map: "PaymentRefund_one_active_per_payment_key", where: { active: true })
   @@index([paymentId, status, createdAt])

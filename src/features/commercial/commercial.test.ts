@@ -7,11 +7,20 @@ import { changeWorkspacePlan } from "@/features/subscriptions/service";
 import { db } from "@/lib/db";
 
 import { acquireBetaDocumentCredits } from "./acquisition";
-import { consumeDocumentCapacity } from "./capacity";
+import {
+  CIV_DEFAULT_TRIAL_CONFIGURATION,
+  CIV_DOCUMENT_CREDIT_PACK_CATALOG,
+  CIV_PLAN_CATALOG,
+} from "./catalog";
+import {
+  consumeDocumentCapacity,
+  getDocumentCapacityAvailability,
+} from "./capacity";
 import {
   CommercialAuthorizationError,
   CommercialValidationError,
   CreditAcquisitionUnavailableError,
+  DocumentCapacityConsumptionConflictError,
   InsufficientDocumentCapacityError,
 } from "./errors";
 import { getPurchasedCreditBalance } from "./ledger";
@@ -22,6 +31,123 @@ import {
   updateDocumentCreditPack,
   updatePlanConfiguration,
 } from "./platform-service";
+
+test("approved CIV plans, credit packs, mappings, and trial defaults are finalized", async () => {
+  const [plans, packs, trial] = await Promise.all([
+    db.plan.findMany({
+      where: { code: { in: CIV_PLAN_CATALOG.map(({ code }) => code) } },
+      select: {
+        code: true,
+        memberLimit: true,
+        documentLimit: true,
+        monthlyPrice: true,
+        currency: true,
+        billingMode: true,
+        paystackPlanCode: true,
+        isActive: true,
+        isPublic: true,
+        isAvailableForNewWorkspaces: true,
+      },
+    }),
+    db.documentCreditPack.findMany({
+      where: {
+        code: {
+          in: CIV_DOCUMENT_CREDIT_PACK_CATALOG.map(({ code }) => code),
+        },
+      },
+      select: {
+        code: true,
+        creditAmount: true,
+        price: true,
+        currency: true,
+        isActive: true,
+        isPublic: true,
+      },
+    }),
+    db.trialConfiguration.findUnique({
+      where: { id: "GLOBAL" },
+      select: {
+        enabled: true,
+        durationDays: true,
+        newWorkspacesOnly: true,
+        oneTrialPerWorkspace: true,
+        paymentMethodRequired: true,
+        allowManualGrant: true,
+        trialPlan: { select: { code: true } },
+        fallbackPlan: { select: { code: true } },
+      },
+    }),
+  ]);
+
+  assert.equal(plans.length, CIV_PLAN_CATALOG.length);
+  for (const expected of CIV_PLAN_CATALOG) {
+    const actual = plans.find(({ code }) => code === expected.code);
+    assert.ok(actual, expected.code);
+    assert.deepEqual(
+      {
+        memberLimit: actual.memberLimit,
+        documentLimit: actual.documentLimit,
+        monthlyPrice: actual.monthlyPrice.toFixed(4),
+        currency: actual.currency,
+        billingMode: actual.billingMode,
+        isActive: actual.isActive,
+        isPublic: actual.isPublic,
+        isAvailableForNewWorkspaces: actual.isAvailableForNewWorkspaces,
+      },
+      {
+        memberLimit: expected.memberLimit,
+        documentLimit: expected.documentLimit,
+        monthlyPrice: expected.monthlyPrice,
+        currency: expected.currency,
+        billingMode: expected.billingMode,
+        isActive: expected.isActive,
+        isPublic: expected.isPublic,
+        isAvailableForNewWorkspaces:
+          expected.isAvailableForNewWorkspaces,
+      },
+    );
+    assert.equal(
+      actual.paystackPlanCode !== null,
+      expected.billingMode === "RECURRING",
+      `${expected.code} provider mapping`,
+    );
+  }
+
+  assert.equal(packs.length, CIV_DOCUMENT_CREDIT_PACK_CATALOG.length);
+  for (const expected of CIV_DOCUMENT_CREDIT_PACK_CATALOG) {
+    const actual = packs.find(({ code }) => code === expected.code);
+    assert.ok(actual, expected.code);
+    assert.deepEqual(
+      {
+        creditAmount: actual.creditAmount,
+        price: actual.price.toFixed(4),
+        currency: actual.currency,
+        isActive: actual.isActive,
+        isPublic: actual.isPublic,
+      },
+      {
+        creditAmount: expected.creditAmount,
+        price: expected.price,
+        currency: expected.currency,
+        isActive: expected.isActive,
+        isPublic: expected.isPublic,
+      },
+    );
+  }
+
+  assert.deepEqual(trial, {
+    enabled: CIV_DEFAULT_TRIAL_CONFIGURATION.enabled,
+    durationDays: CIV_DEFAULT_TRIAL_CONFIGURATION.durationDays,
+    newWorkspacesOnly: CIV_DEFAULT_TRIAL_CONFIGURATION.newWorkspacesOnly,
+    oneTrialPerWorkspace:
+      CIV_DEFAULT_TRIAL_CONFIGURATION.oneTrialPerWorkspace,
+    paymentMethodRequired:
+      CIV_DEFAULT_TRIAL_CONFIGURATION.paymentMethodRequired,
+    allowManualGrant: CIV_DEFAULT_TRIAL_CONFIGURATION.allowManualGrant,
+    trialPlan: { code: CIV_DEFAULT_TRIAL_CONFIGURATION.trialPlanCode },
+    fallbackPlan: { code: CIV_DEFAULT_TRIAL_CONFIGURATION.fallbackPlanCode },
+  });
+});
 
 test("commercial plans, credit packs, allowance periods, and ledger remain authoritative and concurrent-safe", async () => {
   const suffix = randomUUID();
@@ -281,10 +407,23 @@ test("commercial plans, credit packs, allowance periods, and ledger remain autho
       5,
     );
 
+    const availability = await getDocumentCapacityAvailability(workspace.id, 7);
+    assert.equal(availability.canConsume, true);
+    assert.equal(availability.totalAvailable, 7);
+    assert.deepEqual(availability.consumptionOrder, [
+      "MONTHLY_ALLOWANCE",
+      "PURCHASED_CREDITS",
+    ]);
+    assert.equal(
+      (await getDocumentCapacityAvailability(workspace.id, 8)).canConsume,
+      false,
+    );
+
+    const firstSourceReference = `commercial-first-${suffix}`;
     const firstConsumption = await consumeDocumentCapacity({
       workspaceId: workspace.id,
       amount: 3,
-      sourceReference: `commercial-first-${suffix}`,
+      sourceReference: firstSourceReference,
       actorUserId: workspaceOwner.id,
     });
     assert.deepEqual(
@@ -295,6 +434,24 @@ test("commercial plans, credit packs, allowance periods, and ledger remain autho
       },
       { monthlyUsed: 2, purchasedUsed: 1, purchasedBalance: 4 },
     );
+    assert.equal(firstConsumption.idempotent, false);
+    const repeatedConsumption = await consumeDocumentCapacity({
+      workspaceId: workspace.id,
+      amount: 3,
+      sourceReference: firstSourceReference,
+      actorUserId: workspaceOwner.id,
+    });
+    assert.equal(repeatedConsumption.idempotent, true);
+    assert.equal(repeatedConsumption.consumptionId, firstConsumption.consumptionId);
+    await assert.rejects(
+      consumeDocumentCapacity({
+        workspaceId: workspace.id,
+        amount: 2,
+        sourceReference: firstSourceReference,
+        actorUserId: workspaceOwner.id,
+      }),
+      DocumentCapacityConsumptionConflictError,
+    );
     await assert.rejects(
       consumeDocumentCapacity({
         workspaceId: workspace.id,
@@ -303,6 +460,31 @@ test("commercial plans, credit packs, allowance periods, and ledger remain autho
         actorUserId: workspaceOwner.id,
       }),
       InsufficientDocumentCapacityError,
+    );
+    const duplicateSourceReference = `commercial-idempotent-${suffix}`;
+    const duplicateConsumption = await Promise.all([
+      consumeDocumentCapacity({
+        workspaceId: workspace.id,
+        amount: 1,
+        sourceReference: duplicateSourceReference,
+        actorUserId: workspaceOwner.id,
+      }),
+      consumeDocumentCapacity({
+        workspaceId: workspace.id,
+        amount: 1,
+        sourceReference: duplicateSourceReference,
+        actorUserId: workspaceOwner.id,
+      }),
+    ]);
+    assert.equal(
+      duplicateConsumption.filter(({ idempotent }) => !idempotent).length,
+      1,
+    );
+    assert.equal(
+      await db.documentCapacityConsumption.count({
+        where: { sourceReference: duplicateSourceReference },
+      }),
+      1,
     );
     const concurrentConsumption = await Promise.allSettled([
       consumeDocumentCapacity({
@@ -322,7 +504,7 @@ test("commercial plans, credit packs, allowance periods, and ledger remain autho
       concurrentConsumption.filter(({ status }) => status === "fulfilled").length,
       1,
     );
-    assert.equal(await getPurchasedCreditBalance(db, workspace.id), 1);
+    assert.equal(await getPurchasedCreditBalance(db, workspace.id), 0);
 
     const currentPeriod = await db.workspaceDocumentAllowancePeriod.findFirstOrThrow({
       where: { workspaceId: workspace.id },
@@ -337,14 +519,22 @@ test("commercial plans, credit packs, allowance periods, and ledger remain autho
         where: { workspaceId: workspace.id },
       })) >= 2,
     );
-    assert.equal(await getPurchasedCreditBalance(db, workspace.id), 1);
+    assert.equal(await getPurchasedCreditBalance(db, workspace.id), 0);
 
+    await db.membership.delete({
+      where: {
+        workspaceId_userId: {
+          workspaceId: workspace.id,
+          userId: staff.id,
+        },
+      },
+    });
     await changeWorkspacePlan({
       actorUserId: workspaceOwner.id,
       workspaceId: workspace.id,
-      planCode: "ENTERPRISE",
+      planCode: "FREE",
     });
-    assert.equal(await getPurchasedCreditBalance(db, workspace.id), 1);
+    assert.equal(await getPurchasedCreditBalance(db, workspace.id), 0);
 
     const duplicateOwner = await createUser("duplicate-owner");
     const duplicateWorkspace = await createWorkspace(
@@ -445,6 +635,9 @@ test("commercial plans, credit packs, allowance periods, and ledger remain autho
         where: { workspaceId: { in: workspaceIds } },
       });
       await db.documentCreditPurchase.deleteMany({
+        where: { workspaceId: { in: workspaceIds } },
+      });
+      await db.documentCapacityConsumption.deleteMany({
         where: { workspaceId: { in: workspaceIds } },
       });
       await db.workspaceDocumentAllowancePeriod.deleteMany({

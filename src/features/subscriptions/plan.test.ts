@@ -70,7 +70,16 @@ test("free/custom switching, paid-checkout boundary, downgrade safety, isolation
   try {
     const seededPlans = await db.plan.findMany({
       where: { code: { in: ["FREE", "STARTER", "BUSINESS", "PRO", "ENTERPRISE"] } },
-      select: { code: true, memberLimit: true, documentLimit: true, betaPrice: true },
+      select: {
+        code: true,
+        memberLimit: true,
+        documentLimit: true,
+        betaPrice: true,
+        monthlyPrice: true,
+        billingMode: true,
+        paystackPlanCode: true,
+        isAvailableForNewWorkspaces: true,
+      },
     });
     assert.equal(seededPlans.length, 5);
     assert.ok(seededPlans.every((plan) => plan.betaPrice.toString() === "0"));
@@ -81,10 +90,35 @@ test("free/custom switching, paid-checkout boundary, downgrade safety, isolation
       {
         FREE: [1, 50],
         STARTER: [3, 500],
-        BUSINESS: [10, 5000],
-        PRO: [30, 25000],
+        BUSINESS: [10, 2000],
+        PRO: [30, 10000],
         ENTERPRISE: [null, null],
       },
+    );
+    assert.deepEqual(
+      Object.fromEntries(
+        seededPlans.map((plan) => [
+          plan.code,
+          [plan.monthlyPrice.toNumber(), plan.billingMode],
+        ]),
+      ),
+      {
+        FREE: [0, "FREE"],
+        STARTER: [50, "RECURRING"],
+        BUSINESS: [100, "RECURRING"],
+        PRO: [200, "RECURRING"],
+        ENTERPRISE: [0, "CUSTOM"],
+      },
+    );
+    assert.equal(
+      seededPlans.find(({ code }) => code === "ENTERPRISE")
+        ?.isAvailableForNewWorkspaces,
+      false,
+    );
+    assert.ok(
+      seededPlans
+        .filter(({ billingMode }) => billingMode === "RECURRING")
+        .every(({ paystackPlanCode }) => paystackPlanCode !== null),
     );
 
     const owner = await createUser("owner");
@@ -103,7 +137,7 @@ test("free/custom switching, paid-checkout boundary, downgrade safety, isolation
       MemberLimitError,
     );
 
-    for (const planCode of ["STARTER", "BUSINESS", "PRO"] as const) {
+    for (const planCode of ["STARTER", "BUSINESS", "PRO", "ENTERPRISE"] as const) {
       await assert.rejects(
         changeWorkspacePlan({
           actorUserId: owner.id,
@@ -113,22 +147,15 @@ test("free/custom switching, paid-checkout boundary, downgrade safety, isolation
         PlanConfigurationError,
       );
     }
-    const enterpriseResult = await changeWorkspacePlan({
+    const unchangedFree = await changeWorkspacePlan({
       actorUserId: owner.id,
       workspaceId: flowWorkspace.id,
-      planCode: "ENTERPRISE",
+      planCode: "FREE",
     });
-    assert.equal(enterpriseResult.plan.code, "ENTERPRISE");
-    assert.equal(enterpriseResult.status, "BETA");
-    assert.equal(enterpriseResult.id, initialSubscription.id);
+    assert.equal(unchangedFree.plan.code, "FREE");
+    assert.equal(unchangedFree.status, "BETA");
+    assert.equal(unchangedFree.id, initialSubscription.id);
     assert.equal(await db.subscription.count({ where: { workspaceId: flowWorkspace.id } }), 1);
-
-    const enterprise = await db.subscription.findUniqueOrThrow({
-      where: { workspaceId: flowWorkspace.id },
-      select: { plan: { select: { memberLimit: true, documentLimit: true } } },
-    });
-    assert.equal(enterprise.plan.memberLimit, null);
-    assert.equal(enterprise.plan.documentLimit, null);
 
     const businessWorkspace = await createWorkspace("Business invitation", owner.id, "BUSINESS");
     const invitation = await createInvitation({
@@ -269,7 +296,7 @@ test("free/custom switching, paid-checkout boundary, downgrade safety, isolation
     );
 
     const unlimitedOwner = await createUser("unlimited-owner");
-    const unlimitedWorkspace = await createWorkspace("Unlimited", unlimitedOwner.id, "PRO");
+    const unlimitedWorkspace = await createWorkspace("Unlimited", unlimitedOwner.id, "ENTERPRISE");
     await db.invitation.createMany({
       data: Array.from({ length: 31 }, (_, index) => ({
         workspaceId: unlimitedWorkspace.id,
@@ -281,12 +308,6 @@ test("free/custom switching, paid-checkout boundary, downgrade safety, isolation
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
       })),
     });
-    const unlimited = await changeWorkspacePlan({
-      actorUserId: unlimitedOwner.id,
-      workspaceId: unlimitedWorkspace.id,
-      planCode: "ENTERPRISE",
-    });
-    assert.equal(unlimited.plan.memberLimit, null);
     await createInvitation({
       actorUserId: unlimitedOwner.id,
       workspaceId: unlimitedWorkspace.id,

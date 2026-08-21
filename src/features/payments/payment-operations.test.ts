@@ -433,6 +433,7 @@ test("D.4 refunds preserve financial, credit, authorization, reconciliation, and
     if (workspaceIds.length) await db.auditEvent.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
     if (resourceIds.length || userIds.length) await db.platformAuditEvent.deleteMany({ where: { OR: [{ resourceId: { in: resourceIds } }, { actorUserId: { in: userIds } }] } });
     if (workspaceIds.length) await db.documentCreditTransaction.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
+    if (workspaceIds.length) await db.documentCapacityConsumption.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
     if (paymentReferences.length) await db.paymentProviderEvent.deleteMany({ where: { providerReference: { in: paymentReferences.map(({ internalReference }) => internalReference) } } });
     if (paymentIds.length) await db.paymentRefund.deleteMany({ where: { paymentId: { in: paymentIds } } });
     if (paymentIds.length) await db.paymentAttempt.deleteMany({ where: { paymentId: { in: paymentIds } } });
