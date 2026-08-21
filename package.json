@@ -38,6 +38,7 @@
     "test:create2:http": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-create-routes.ts",
     "test:issue": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test --test-concurrency=1 src/features/documents/issue-phase-1.test.ts",
     "test:issue:http": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-issue-routes.ts",
+    "test:templates": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test --test-concurrency=1 src/features/document-templates/*.test.ts",
     "payments:check:paystack": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-paystack-connectivity.ts",
     "payments:check:initialize": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/check-paystack-initialization.ts",
     "commercial:finalize:dev": "npm run db:check:dev && node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/finalize-development-commercial-configuration.ts",
@@ -52,6 +53,7 @@
     "db:seed": "npm run db:check:dev && prisma db seed",
     "db:studio": "npm run db:check:dev && prisma studio",
     "platform:bootstrap-owner": "npm run db:check:dev && node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/bootstrap-platform-owner.ts",
+    "templates:bootstrap:dev": "npm run db:check:dev && node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx scripts/bootstrap-built-in-document-templates.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {
