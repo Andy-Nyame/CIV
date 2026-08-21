@@ -92,6 +92,16 @@ export const auditMetadataSchemas = {
       paymentReference: z.string().trim().min(1).max(100).nullable(),
     })
     .strict(),
+  PAYMENT_REFUND_SUCCEEDED: z
+    .object({
+      paymentReference: z.string().trim().min(1).max(100),
+      refundReference: z.string().trim().min(1).max(100),
+      purpose: z.enum(["DOCUMENT_CREDITS", "SUBSCRIPTION_INITIAL", "SUBSCRIPTION_RENEWAL", "MANUAL_PLAN_RENEWAL"]),
+      amount: z.string().regex(/^\d+(\.\d{1,4})?$/),
+      currency: z.string().length(3),
+      partial: z.boolean(),
+    })
+    .strict(),
   TRIAL_STARTED: trialMetadataSchema,
   TRIAL_EXPIRED: trialMetadataSchema,
   TRIAL_CANCELLED: trialMetadataSchema,

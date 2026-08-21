@@ -73,6 +73,45 @@ export async function processPaystackWebhook(
     "invoice.update",
     "invoice.payment_failed",
   ]);
+  const refundEvents = new Set([
+    "refund.pending",
+    "refund.processing",
+    "refund.needs-attention",
+    "refund.failed",
+    "refund.processed",
+  ]);
+  if (refundEvents.has(event.eventType)) {
+    try {
+      const refunds = await import("./refunds");
+      const result = await refunds.processRefundProviderEvent(event);
+      await db.paymentProviderEvent.update({
+        where: { id: record.id },
+        data: {
+          status: result.handled ? "PROCESSED" : "IGNORED",
+          processedAt: new Date(),
+          safeData: {
+            ...event.safeData,
+            outcome: result.handled
+              ? result.idempotent
+                ? "IDEMPOTENT"
+                : "PROCESSED"
+              : "UNKNOWN_REFUND",
+          },
+        },
+      });
+      return {
+        accepted: true as const,
+        duplicate: result.idempotent,
+        ignored: !result.handled,
+      };
+    } catch (error) {
+      await db.paymentProviderEvent.update({
+        where: { id: record.id },
+        data: { status: "FAILED", processedAt: new Date() },
+      });
+      throw error;
+    }
+  }
   if (recurringEvents.has(event.eventType)) {
     try {
       const recurring = await import("./recurring-subscriptions");

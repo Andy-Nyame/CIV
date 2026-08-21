@@ -29,6 +29,11 @@ export const PLATFORM_AUDIT_ACTIONS = {
   PLATFORM_SUBSCRIPTION_RENEWED: "PLATFORM_SUBSCRIPTION_RENEWED",
   PLATFORM_SUBSCRIPTION_PAYMENT_FAILED: "PLATFORM_SUBSCRIPTION_PAYMENT_FAILED",
   PLATFORM_SUBSCRIPTION_CANCELLED: "PLATFORM_SUBSCRIPTION_CANCELLED",
+  PLATFORM_PAYMENT_REFUND_INITIATED: "PLATFORM_PAYMENT_REFUND_INITIATED",
+  PLATFORM_PAYMENT_REFUND_SUCCEEDED: "PLATFORM_PAYMENT_REFUND_SUCCEEDED",
+  PLATFORM_PAYMENT_REFUND_FAILED: "PLATFORM_PAYMENT_REFUND_FAILED",
+  PLATFORM_PAYMENT_RECONCILED: "PLATFORM_PAYMENT_RECONCILED",
+  PLATFORM_PAYMENT_RECONCILIATION_REQUIRED: "PLATFORM_PAYMENT_RECONCILIATION_REQUIRED",
 } as const;
 
 export type PlatformAuditAction =
@@ -42,6 +47,8 @@ export const PLATFORM_AUDIT_RESOURCE_TYPES = {
   TRIAL_CONFIGURATION: "TRIAL_CONFIGURATION",
   WORKSPACE_TRIAL: "WORKSPACE_TRIAL",
   SUBSCRIPTION: "SUBSCRIPTION",
+  PAYMENT: "PAYMENT",
+  PAYMENT_REFUND: "PAYMENT_REFUND",
 } as const;
 
 export type PlatformAuditResourceType =
@@ -118,6 +125,21 @@ export const platformAuditMetadataSchemas = {
   PLATFORM_SUBSCRIPTION_CANCELLED: z
     .object({ workspaceName: displayNameSchema, planCode: z.string().min(1).max(50) })
     .strict(),
+  PLATFORM_PAYMENT_REFUND_INITIATED: z
+    .object({ paymentReference: z.string().min(1).max(100), refundReference: z.string().min(1).max(100), amount: z.string().regex(/^\d+(\.\d{1,4})?$/), currency: z.string().length(3), purpose: z.enum(["DOCUMENT_CREDITS", "SUBSCRIPTION_INITIAL", "SUBSCRIPTION_RENEWAL", "MANUAL_PLAN_RENEWAL"]) })
+    .strict(),
+  PLATFORM_PAYMENT_REFUND_SUCCEEDED: z
+    .object({ paymentReference: z.string().min(1).max(100), refundReference: z.string().min(1).max(100), amount: z.string().regex(/^\d+(\.\d{1,4})?$/), currency: z.string().length(3), partial: z.boolean() })
+    .strict(),
+  PLATFORM_PAYMENT_REFUND_FAILED: z
+    .object({ paymentReference: z.string().min(1).max(100), refundReference: z.string().min(1).max(100), failureCode: z.string().min(1).max(100) })
+    .strict(),
+  PLATFORM_PAYMENT_RECONCILED: z
+    .object({ paymentReference: z.string().min(1).max(100), outcome: z.enum(["NO_CHANGE", "PAYMENT_UPDATED", "REFUND_UPDATED"]) })
+    .strict(),
+  PLATFORM_PAYMENT_RECONCILIATION_REQUIRED: z
+    .object({ paymentReference: z.string().min(1).max(100), reasonCode: z.string().min(1).max(100) })
+    .strict(),
 } as const;
 
 const platformAuditActionSchema = z.enum(Object.values(PLATFORM_AUDIT_ACTIONS));
@@ -147,6 +169,11 @@ const actionResource = {
   PLATFORM_SUBSCRIPTION_RENEWED: "SUBSCRIPTION",
   PLATFORM_SUBSCRIPTION_PAYMENT_FAILED: "SUBSCRIPTION",
   PLATFORM_SUBSCRIPTION_CANCELLED: "SUBSCRIPTION",
+  PLATFORM_PAYMENT_REFUND_INITIATED: "PAYMENT_REFUND",
+  PLATFORM_PAYMENT_REFUND_SUCCEEDED: "PAYMENT_REFUND",
+  PLATFORM_PAYMENT_REFUND_FAILED: "PAYMENT_REFUND",
+  PLATFORM_PAYMENT_RECONCILED: "PAYMENT",
+  PLATFORM_PAYMENT_RECONCILIATION_REQUIRED: "PAYMENT",
 } as const satisfies Record<PlatformAuditAction, PlatformAuditResourceType>;
 
 type PlatformAuditMetadataByAction = {
@@ -248,6 +275,11 @@ export function platformAuditActionLabel(action: string) {
     PLATFORM_SUBSCRIPTION_RENEWED: "Workspace subscription renewed",
     PLATFORM_SUBSCRIPTION_PAYMENT_FAILED: "Workspace subscription payment failed",
     PLATFORM_SUBSCRIPTION_CANCELLED: "Workspace subscription cancelled",
+    PLATFORM_PAYMENT_REFUND_INITIATED: "Payment refund initiated",
+    PLATFORM_PAYMENT_REFUND_SUCCEEDED: "Payment refund succeeded",
+    PLATFORM_PAYMENT_REFUND_FAILED: "Payment refund failed",
+    PLATFORM_PAYMENT_RECONCILED: "Payment reconciled",
+    PLATFORM_PAYMENT_RECONCILIATION_REQUIRED: "Payment reconciliation required",
   };
   return action in labels ? labels[action as PlatformAuditAction] : "Platform operation";
 }
@@ -325,6 +357,16 @@ export function platformAuditEventDescription(event: PlatformAuditDisplayEvent) 
       return `${text(metadata.workspaceName, "A workspace")}'s ${text(metadata.planCode, "paid")} subscription payment failed.`;
     case "PLATFORM_SUBSCRIPTION_CANCELLED":
       return `${text(metadata.workspaceName, "A workspace")} ended the ${text(metadata.planCode, "paid")} subscription.`;
+    case "PLATFORM_PAYMENT_REFUND_INITIATED":
+      return `${actor} initiated refund ${text(metadata.refundReference, "for a payment")}.`;
+    case "PLATFORM_PAYMENT_REFUND_SUCCEEDED":
+      return `${actor} confirmed refund ${text(metadata.refundReference, "for a payment")}.`;
+    case "PLATFORM_PAYMENT_REFUND_FAILED":
+      return `Refund ${text(metadata.refundReference, "for a payment")} failed.`;
+    case "PLATFORM_PAYMENT_RECONCILED":
+      return `${actor} reconciled payment ${text(metadata.paymentReference, "state")}.`;
+    case "PLATFORM_PAYMENT_RECONCILIATION_REQUIRED":
+      return `${actor} marked payment ${text(metadata.paymentReference, "state")} for reconciliation review.`;
     default:
       return `${actor} completed a platform operation.`;
   }

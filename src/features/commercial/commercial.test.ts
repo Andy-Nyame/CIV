@@ -342,7 +342,7 @@ test("commercial plans, credit packs, allowance periods, and ledger remain autho
     await changeWorkspacePlan({
       actorUserId: workspaceOwner.id,
       workspaceId: workspace.id,
-      planCode: "BUSINESS",
+      planCode: "ENTERPRISE",
     });
     assert.equal(await getPurchasedCreditBalance(db, workspace.id), 1);
 

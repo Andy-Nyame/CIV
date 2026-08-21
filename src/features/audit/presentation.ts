@@ -23,6 +23,7 @@ const actionLabels: Record<AuditAction, string> = {
   WORKSPACE_LOGO_UPDATED: "Workspace logo updated",
   WORKSPACE_LOGO_REMOVED: "Workspace logo removed",
   DOCUMENT_CREDITS_ACQUIRED: "Document credits acquired",
+  PAYMENT_REFUND_SUCCEEDED: "Payment refunded",
   TRIAL_STARTED: "Trial started",
   TRIAL_EXPIRED: "Trial expired",
   TRIAL_CANCELLED: "Trial cancelled",
@@ -113,6 +114,8 @@ export function presentAuditEvent(event: PresentableAuditEvent) {
         return `${actor} removed the workspace logo.`;
       case "DOCUMENT_CREDITS_ACQUIRED":
         return `${actor} added ${typeof metadata.credits === "number" ? metadata.credits.toLocaleString("en-GH") : "document"} carry-forward document credits through ${enumLabel(metadataText(metadata, "packCode", "a credit pack"))}.`;
+      case "PAYMENT_REFUND_SUCCEEDED":
+        return `CIV confirmed a ${metadata.partial === true ? "partial " : ""}${metadataText(metadata, "currency", "payment")} ${metadataText(metadata, "amount", "")} refund for this workspace.`;
       case "TRIAL_STARTED":
         return `CIV started a ${enumLabel(metadataText(metadata, "trialPlan", "plan"))} trial for this workspace.`;
       case "TRIAL_EXPIRED":

@@ -80,7 +80,7 @@ test("workspace mutations write safe, transactional, isolated audit history", as
     await changeWorkspacePlan({
       actorUserId: owner.id,
       workspaceId: workspace.id,
-      planCode: "BUSINESS",
+      planCode: "ENTERPRISE",
     });
     const planEvent = await db.auditEvent.findFirstOrThrow({
       where: { workspaceId: workspace.id, action: "WORKSPACE_PLAN_CHANGED" },
@@ -88,7 +88,7 @@ test("workspace mutations write safe, transactional, isolated audit history", as
     assert.deepEqual(Object.assign({}, planEvent.metadata), {
       actorDisplayName: "Audit owner",
       fromPlan: "FREE",
-      toPlan: "BUSINESS",
+      toPlan: "ENTERPRISE",
     });
 
     const cancelledInvitation = await createInvitation({

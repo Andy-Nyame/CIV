@@ -71,3 +71,24 @@ export class SubscriptionPaymentError extends Error {
     this.name = "SubscriptionPaymentError";
   }
 }
+
+export type PaymentRefundErrorReason =
+  | "PAYMENT_UNAVAILABLE"
+  | "PAYMENT_NOT_SUCCEEDED"
+  | "PURPOSE_UNSUPPORTED"
+  | "AMOUNT_INVALID"
+  | "AMOUNT_EXCEEDS_REMAINING"
+  | "CURRENCY_MISMATCH"
+  | "REFUND_IN_PROGRESS"
+  | "CREDIT_PARTIAL_UNSUPPORTED"
+  | "CREDITS_ALREADY_USED"
+  | "REFUND_UNAVAILABLE"
+  | "PROVIDER_MISMATCH"
+  | "RECONCILIATION_REVIEW_REQUIRED";
+
+export class PaymentRefundError extends Error {
+  constructor(public readonly reason: PaymentRefundErrorReason) {
+    super("The refund operation could not be completed.");
+    this.name = "PaymentRefundError";
+  }
+}

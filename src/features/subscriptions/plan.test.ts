@@ -11,7 +11,7 @@ import { createInvitation } from "@/features/team/invitation-service";
 import { MemberLimitError } from "@/features/team/errors";
 import { db } from "@/lib/db";
 
-import { PlanDowngradeError, PlanValidationError } from "./errors";
+import { PlanConfigurationError, PlanDowngradeError, PlanValidationError } from "./errors";
 import { changeWorkspacePlan } from "./service";
 
 test("subscription capabilities remain Owner-managed and Admin-viewable", () => {
@@ -23,7 +23,7 @@ test("subscription capabilities remain Owner-managed and Admin-viewable", () => 
   assert.equal(hasCapability({ role: "STAFF" }, CAPABILITIES.MANAGE_SUBSCRIPTION), false);
 });
 
-test("beta plan switching, downgrade safety, isolation, and invitation limits", async () => {
+test("free/custom switching, paid-checkout boundary, downgrade safety, isolation, and invitation limits", async () => {
   const suffix = randomUUID();
   const userIds: string[] = [];
   const workspaceIds: string[] = [];
@@ -103,20 +103,25 @@ test("beta plan switching, downgrade safety, isolation, and invitation limits", 
       MemberLimitError,
     );
 
-    for (const planCode of ["STARTER", "BUSINESS", "PRO", "ENTERPRISE"] as const) {
-      const result = await changeWorkspacePlan({
-        actorUserId: owner.id,
-        workspaceId: flowWorkspace.id,
-        planCode,
-      });
-      assert.equal(result.plan.code, planCode);
-      assert.equal(result.status, "BETA");
-      assert.equal(result.id, initialSubscription.id);
-      assert.equal(
-        await db.subscription.count({ where: { workspaceId: flowWorkspace.id } }),
-        1,
+    for (const planCode of ["STARTER", "BUSINESS", "PRO"] as const) {
+      await assert.rejects(
+        changeWorkspacePlan({
+          actorUserId: owner.id,
+          workspaceId: flowWorkspace.id,
+          planCode,
+        }),
+        PlanConfigurationError,
       );
     }
+    const enterpriseResult = await changeWorkspacePlan({
+      actorUserId: owner.id,
+      workspaceId: flowWorkspace.id,
+      planCode: "ENTERPRISE",
+    });
+    assert.equal(enterpriseResult.plan.code, "ENTERPRISE");
+    assert.equal(enterpriseResult.status, "BETA");
+    assert.equal(enterpriseResult.id, initialSubscription.id);
+    assert.equal(await db.subscription.count({ where: { workspaceId: flowWorkspace.id } }), 1);
 
     const enterprise = await db.subscription.findUniqueOrThrow({
       where: { workspaceId: flowWorkspace.id },
@@ -125,14 +130,10 @@ test("beta plan switching, downgrade safety, isolation, and invitation limits", 
     assert.equal(enterprise.plan.memberLimit, null);
     assert.equal(enterprise.plan.documentLimit, null);
 
-    await changeWorkspacePlan({
-      actorUserId: owner.id,
-      workspaceId: flowWorkspace.id,
-      planCode: "BUSINESS",
-    });
+    const businessWorkspace = await createWorkspace("Business invitation", owner.id, "BUSINESS");
     const invitation = await createInvitation({
       actorUserId: owner.id,
-      workspaceId: flowWorkspace.id,
+      workspaceId: businessWorkspace.id,
       input: { email: `business-invite-${suffix}@example.invalid`, role: "STAFF" },
     });
     assert.equal(invitation.role, "STAFF");
@@ -218,7 +219,7 @@ test("beta plan switching, downgrade safety, isolation, and invitation limits", 
       changeWorkspacePlan({
         actorUserId: pendingOwner.id,
         workspaceId: pendingWorkspace.id,
-        planCode: "STARTER",
+        planCode: "FREE",
       }),
       (error) => error instanceof PlanDowngradeError && error.reason === "MEMBERS",
     );

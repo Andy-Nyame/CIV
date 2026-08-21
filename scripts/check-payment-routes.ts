@@ -42,7 +42,7 @@ async function signIn(email: string, callbackUrl: string) {
 const passwordHash = await hashPassword(password);
 const free = await db.plan.findUniqueOrThrow({ where: { code: "FREE" }, select: { id: true } });
 const users = await Promise.all(
-  ["owner-a", "owner-b", "finance", "support"].map((kind) =>
+  ["owner-a", "owner-b", "finance", "support", "platform-admin"].map((kind) =>
     db.user.create({
       data: {
         name: `Payment route ${kind}`,
@@ -57,6 +57,7 @@ await db.platformMembership.createMany({
   data: [
     { userId: users[2].id, role: "FINANCE", status: "ACTIVE" },
     { userId: users[3].id, role: "SUPPORT", status: "ACTIVE" },
+    { userId: users[4].id, role: "PLATFORM_ADMIN", status: "ACTIVE" },
   ],
 });
 const workspaces = await Promise.all(
@@ -97,6 +98,21 @@ const payment = await db.payment.create({
   select: { id: true },
 });
 const unknownReference = `CIV-PAY-${randomBytes(16).toString("hex").toUpperCase()}`;
+const refundableReference = `CIV-PAY-${randomBytes(16).toString("hex").toUpperCase()}`;
+await db.payment.create({
+  data: {
+    workspaceId: workspaces[0].id,
+    initiatedByUserId: users[0].id,
+    purpose: "SUBSCRIPTION_INITIAL",
+    provider: "PAYSTACK",
+    internalReference: refundableReference,
+    providerReference: refundableReference,
+    amount: "2.00",
+    currency: "GHS",
+    status: "SUCCEEDED",
+    completedAt: new Date(),
+  },
+});
 
 try {
   const signedOut = await fetch(`${baseUrl}/app/settings/billing`, { redirect: "manual" });
@@ -146,7 +162,18 @@ try {
   const financePage = await financeResponse.text();
   assert.equal(financeResponse.status, 200);
   assert.match(financePage, new RegExp(reference));
+  assert.match(financePage, /Reconcile with Paystack/);
+  assert.doesNotMatch(financePage, /Refund payment/);
   assert.doesNotMatch(financePage, /providerAccessCode|authorizationUrl|PAYSTACK_SECRET_KEY|sk_test_/);
+
+  const platformAdminCookies = await signIn(users[4].email!, "/civ-admin/payments");
+  const platformAdminResponse = await fetch(`${baseUrl}/civ-admin/payments`, {
+    headers: { Cookie: cookieHeader(platformAdminCookies) },
+  });
+  const platformAdminPage = await platformAdminResponse.text();
+  assert.equal(platformAdminResponse.status, 200);
+  assert.match(platformAdminPage, /Refund payment/);
+  assert.match(platformAdminPage, /Reconcile with Paystack/);
 
   const supportCookies = await signIn(users[3].email!, "/civ-admin/payments");
   assert.equal((await fetch(`${baseUrl}/civ-admin/payments`, {
@@ -187,7 +214,7 @@ try {
   assert.equal(await db.documentCreditTransaction.count({ where: { workspaceId: workspaces[0].id } }), 0);
   console.log("PASS payment billing routes, callback non-authority, platform authorization, webhook signature/idempotency, and entitlement isolation");
 } finally {
-  await db.paymentProviderEvent.deleteMany({ where: { providerReference: { in: [reference, unknownReference] } } });
+  await db.paymentProviderEvent.deleteMany({ where: { providerReference: { in: [reference, unknownReference, refundableReference] } } });
   await db.paymentAttempt.deleteMany({ where: { payment: { workspaceId: { in: workspaces.map(({ id }) => id) } } } });
   await db.payment.deleteMany({ where: { workspaceId: { in: workspaces.map(({ id }) => id) } } });
   await db.workspaceDocumentAllowancePeriod.deleteMany({

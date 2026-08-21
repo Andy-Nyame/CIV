@@ -3,12 +3,42 @@ import "server-only";
 import { CAPABILITIES } from "@/features/authorization/capabilities";
 import { requirePageCapability } from "@/features/authorization/context";
 import { PLATFORM_CAPABILITIES } from "@/features/platform-admin/capabilities";
+import { hasPlatformCapability } from "@/features/platform-admin/capabilities";
 import { requirePlatformPageCapability } from "@/features/platform-admin/authorization";
 import { getPlanSettingsPageData } from "@/features/subscriptions/queries";
 import { db } from "@/lib/db";
 
 import { readPaystackConfig } from "./config";
 import { PaymentValidationError } from "./errors";
+import { minorUnitsToDecimalString, toMinorUnits } from "./currency";
+
+function paymentRefundSummary(payment: {
+  amount: { toString(): string };
+  currency: string;
+  refunds: Array<{
+    amount: { toString(): string; toFixed(digits: number): string };
+    active: boolean;
+    status: string;
+  }>;
+}) {
+  if (payment.currency !== "GHS") {
+    return { refundedAmount: "0.00", remainingRefundableAmount: "0.00" };
+  }
+  const succeededMinor = payment.refunds
+    .filter((refund) => refund.status === "SUCCEEDED")
+    .reduce((sum, refund) => sum + toMinorUnits(refund.amount, "GHS"), 0);
+  const reservedMinor = payment.refunds
+    .filter((refund) => refund.active)
+    .reduce((sum, refund) => sum + toMinorUnits(refund.amount, "GHS"), 0);
+  const paymentMinor = toMinorUnits(payment.amount, "GHS");
+  return {
+    refundedAmount: minorUnitsToDecimalString(succeededMinor, "GHS"),
+    remainingRefundableAmount: minorUnitsToDecimalString(
+      Math.max(0, paymentMinor - succeededMinor - reservedMinor),
+      "GHS",
+    ),
+  };
+}
 
 const referencePattern = /^CIV-PAY-[A-F0-9]{32}$/;
 
@@ -45,6 +75,19 @@ export async function getWorkspaceBillingPageData() {
       },
       subscriptionBillingPeriod: {
         select: { status: true, periodStart: true, periodEnd: true },
+      },
+      refunds: {
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: {
+          id: true,
+          internalReference: true,
+          status: true,
+          active: true,
+          amount: true,
+          currency: true,
+          createdAt: true,
+          completedAt: true,
+        },
       },
     },
     }),
@@ -89,9 +132,14 @@ export async function getWorkspaceBillingPageData() {
     recurringBilling: planData.recurringBilling,
     canManageSubscription: planData.canManageSubscription,
     paymentMode: config.mode,
-    payments: payments.map(({ amount, ...payment }) => ({
+    payments: payments.map(({ amount, refunds, ...payment }) => ({
       ...payment,
       amount: amount.toFixed(2),
+      ...paymentRefundSummary({ amount, currency: payment.currency, refunds }),
+      refunds: refunds.map(({ amount: refundAmount, ...refund }) => ({
+        ...refund,
+        amount: refundAmount.toFixed(2),
+      })),
     })),
     billingPeriods: billingPeriods.map(({ amount, ...period }) => ({
       ...period,
@@ -147,7 +195,7 @@ export async function getWorkspacePaymentReturnData(reference: unknown) {
 }
 
 export async function getPlatformPaymentsPageData() {
-  await requirePlatformPageCapability(PLATFORM_CAPABILITIES.VIEW_PAYMENTS);
+  const context = await requirePlatformPageCapability(PLATFORM_CAPABILITIES.VIEW_PAYMENTS);
   const [payments, statusCounts, subscriptionStatusCounts, trialConversions] = await Promise.all([
     db.payment.findMany({
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -162,6 +210,9 @@ export async function getPlatformPaymentsPageData() {
         status: true,
         createdAt: true,
         completedAt: true,
+        reconciliationStatus: true,
+        reconciliationNote: true,
+        reconciledAt: true,
         documentCreditPurchase: {
           select: {
             status: true,
@@ -181,7 +232,29 @@ export async function getPlatformPaymentsPageData() {
         },
         workspace: { select: { name: true } },
         initiatedBy: { select: { name: true, email: true } },
+        attempts: {
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          take: 1,
+          select: { status: true },
+        },
         _count: { select: { attempts: true } },
+        refunds: {
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: {
+            id: true,
+            internalReference: true,
+            providerRefundReference: true,
+            status: true,
+            active: true,
+            amount: true,
+            currency: true,
+            creditAmount: true,
+            reason: true,
+            safeFailureCode: true,
+            createdAt: true,
+            completedAt: true,
+          },
+        },
       },
     }),
     db.payment.groupBy({ by: ["status"], _count: { _all: true } }),
@@ -199,10 +272,24 @@ export async function getPlatformPaymentsPageData() {
       count: _count._all,
     })),
     trialConversions,
-    payments: payments.map(({ amount, _count, ...payment }) => ({
+    canRefund: hasPlatformCapability(
+      context.membership,
+      PLATFORM_CAPABILITIES.MANAGE_PAYMENT_REFUNDS,
+    ),
+    canReconcile: hasPlatformCapability(
+      context.membership,
+      PLATFORM_CAPABILITIES.RECONCILE_PAYMENTS,
+    ),
+    payments: payments.map(({ amount, refunds, attempts, _count, ...payment }) => ({
       ...payment,
       amount: amount.toFixed(2),
+      ...paymentRefundSummary({ amount, currency: payment.currency, refunds }),
+      refunds: refunds.map(({ amount: refundAmount, ...refund }) => ({
+        ...refund,
+        amount: refundAmount.toFixed(2),
+      })),
       attempts: _count.attempts,
+      latestProviderState: attempts[0]?.status ?? null,
     })),
   };
 }

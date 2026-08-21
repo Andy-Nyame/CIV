@@ -18,7 +18,7 @@ import type {
   PaymentProviderClient,
   VerifiedProviderPayment,
 } from "./provider";
-import { createInternalPaymentReference } from "./reference";
+import { createInternalPaymentReference, createInternalRefundReference } from "./reference";
 import {
   initializeBillingTestPayment,
   verifyPaymentByReference,
@@ -127,6 +127,77 @@ test("CIV references are provider-safe, unique, and unpredictable", () => {
   const references = new Set(Array.from({ length: 100 }, createInternalPaymentReference));
   assert.equal(references.size, 100);
   for (const reference of references) assert.match(reference, /^CIV-PAY-[A-F0-9]{32}$/);
+  assert.match(createInternalRefundReference(), /^CIV-REF-[A-F0-9]{32}$/);
+});
+
+test("Paystack refund client uses trusted minor units and parses asynchronous states", async () => {
+  const reference = createInternalPaymentReference();
+  let requestBody: Record<string, unknown> = {};
+  const provider = new PaystackPaymentProvider(async (_url, init) => {
+    requestBody = JSON.parse(String(init?.body));
+    return Response.json({
+      status: true,
+      data: {
+        id: 72,
+        refund_reference: "RFD_TEST72",
+        status: "pending",
+        amount: 100,
+        currency: "GHS",
+        domain: "test",
+        expected_at: "2026-08-25T12:00:00.000Z",
+        refunded_at: null,
+        transaction: { id: 9001, reference },
+      },
+    });
+  }, fakeEnvironment);
+  const refund = await provider.createRefund({
+    transactionReference: reference,
+    amountMinor: 100,
+    currency: "GHS",
+    customerNote: "Approved refund",
+    merchantNote: createInternalRefundReference(),
+  });
+  assert.equal(requestBody.transaction, reference);
+  assert.equal(requestBody.amount, 100);
+  assert.equal(refund.status, "pending");
+  assert.equal(refund.providerRefundId, "72");
+  assert.equal(refund.providerRefundReference, "RFD_TEST72");
+
+  const fetchProvider = new PaystackPaymentProvider(async () => Response.json({
+    status: true,
+    data: {
+      id: 72,
+      refund_reference: "RFD_TEST72",
+      status: "processed",
+      amount: 100,
+      currency: "GHS",
+      domain: "test",
+      expected_at: "2026-08-25T12:00:00.000Z",
+      refunded_at: "2026-08-25T12:01:00.000Z",
+      transaction: 9001,
+    },
+  }), fakeEnvironment);
+  const fetchedRefund = await fetchProvider.fetchRefund("72");
+  assert.equal(fetchedRefund.transactionReference, null);
+  assert.equal(fetchedRefund.transactionIdentifier, "9001");
+  assert.equal(fetchedRefund.status, "processed");
+
+  const event = provider.parseWebhookEvent(Buffer.from(JSON.stringify({
+    event: "refund.processed",
+    data: {
+      id: 72,
+      refund_reference: "RFD_TEST72",
+      transaction_reference: reference,
+      status: "processed",
+      amount: "100",
+      currency: "GHS",
+      domain: "test",
+      customer_note: "must not be retained",
+    },
+  })));
+  assert.equal(event.providerReference, reference);
+  assert.equal(event.safeData.refundStatus, "processed");
+  assert.equal(JSON.stringify(event.safeData).includes("customer_note"), false);
 });
 
 test("Paystack client sends trusted minor units and validates response/reference", async () => {
