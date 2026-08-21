@@ -32,9 +32,7 @@ export async function getPurchasedCreditBalance(
   transaction: Prisma.TransactionClient,
   workspaceId: string,
 ) {
-  const [ledgerBalance, reservedForRefunds] = await Promise.all([
-    getPurchasedCreditLedgerBalance(transaction, workspaceId),
-    getReservedCreditRefundBalance(transaction, workspaceId),
-  ]);
+  const ledgerBalance = await getPurchasedCreditLedgerBalance(transaction, workspaceId);
+  const reservedForRefunds = await getReservedCreditRefundBalance(transaction, workspaceId);
   return ledgerBalance - reservedForRefunds;
 }

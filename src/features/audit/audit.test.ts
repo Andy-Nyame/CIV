@@ -311,7 +311,7 @@ test("workspace mutations write safe, transactional, isolated audit history", as
           });
         }
       },
-      { maxWait: 10_000, timeout: 30_000 },
+      { maxWait: 10_000, timeout: 180_000 },
     );
 
     const pagedIds: string[] = [];

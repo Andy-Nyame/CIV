@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 
 import {
@@ -14,6 +15,10 @@ import {
 } from "./locking";
 import { ensureCurrentAllowancePeriod } from "./periods";
 import { consumeDocumentCapacitySchema } from "./validation";
+
+const transactionCapacitySchema = consumeDocumentCapacitySchema.extend({
+  documentId: consumeDocumentCapacitySchema.shape.workspaceId.nullable().default(null),
+});
 
 export async function getDocumentCapacityAvailability(
   workspaceId: string,
@@ -64,15 +69,35 @@ export async function consumeDocumentCapacity(input: unknown) {
     throw new CommercialValidationError(parsed.error.flatten().fieldErrors);
   }
 
-  return db.$transaction(async (transaction) => {
-    await lockWorkspaceCommercialAccount(transaction, parsed.data.workspaceId);
-    const existing = await transaction.documentCapacityConsumption.findUnique({
+  return db.$transaction(
+    (transaction) => consumeDocumentCapacityInTransaction(transaction, parsed.data),
+    commercialTransactionOptions,
+  );
+}
+
+export async function consumeDocumentCapacityInTransaction(
+  transaction: Prisma.TransactionClient,
+  input: {
+    workspaceId: string;
+    amount: number;
+    sourceReference: string;
+    actorUserId?: string | null;
+    documentId?: string | null;
+  },
+) {
+  const parsed = transactionCapacitySchema.safeParse(input);
+  if (!parsed.success) {
+    throw new CommercialValidationError(parsed.error.flatten().fieldErrors);
+  }
+  await lockWorkspaceCommercialAccount(transaction, parsed.data.workspaceId);
+  const existing = await transaction.documentCapacityConsumption.findUnique({
       where: { sourceReference: parsed.data.sourceReference },
-    });
-    if (existing) {
+  });
+  if (existing) {
       if (
         existing.workspaceId !== parsed.data.workspaceId ||
-        existing.amount !== parsed.data.amount
+        existing.amount !== parsed.data.amount ||
+        (parsed.data.documentId && existing.documentId !== parsed.data.documentId)
       ) {
         throw new DocumentCapacityConsumptionConflictError();
       }
@@ -84,38 +109,38 @@ export async function consumeDocumentCapacity(input: unknown) {
         purchasedBalance: existing.purchasedBalanceAfter,
         idempotent: true,
       };
-    }
-    const period = await ensureCurrentAllowancePeriod(
+  }
+  const period = await ensureCurrentAllowancePeriod(
       transaction,
       parsed.data.workspaceId,
     );
-    const purchasedBalance = await getPurchasedCreditBalance(
+  const purchasedBalance = await getPurchasedCreditBalance(
       transaction,
       parsed.data.workspaceId,
     );
-    if (purchasedBalance < 0) throw new InsufficientDocumentCapacityError();
+  if (purchasedBalance < 0) throw new InsufficientDocumentCapacityError();
 
-    const monthlyRemaining =
+  const monthlyRemaining =
       period.allowance === null
         ? null
         : Math.max(0, period.allowance - period.used);
-    const monthlyUsed =
+  const monthlyUsed =
       monthlyRemaining === null
         ? parsed.data.amount
         : Math.min(monthlyRemaining, parsed.data.amount);
-    const purchasedUsed = parsed.data.amount - monthlyUsed;
-    if (purchasedUsed > purchasedBalance) {
-      throw new InsufficientDocumentCapacityError();
-    }
+  const purchasedUsed = parsed.data.amount - monthlyUsed;
+  if (purchasedUsed > purchasedBalance) {
+    throw new InsufficientDocumentCapacityError();
+  }
 
-    const allowanceUsedAfter = period.used + monthlyUsed;
-    const purchasedBalanceAfter = purchasedBalance - purchasedUsed;
-    await transaction.workspaceDocumentAllowancePeriod.update({
+  const allowanceUsedAfter = period.used + monthlyUsed;
+  const purchasedBalanceAfter = purchasedBalance - purchasedUsed;
+  await transaction.workspaceDocumentAllowancePeriod.update({
       where: { id: period.id },
       data: { used: { increment: monthlyUsed } },
-    });
-    if (purchasedUsed > 0) {
-      await transaction.documentCreditTransaction.create({
+  });
+  if (purchasedUsed > 0) {
+    await transaction.documentCreditTransaction.create({
         data: {
           workspaceId: parsed.data.workspaceId,
           type: "USAGE",
@@ -125,10 +150,10 @@ export async function consumeDocumentCapacity(input: unknown) {
           actorUserId: parsed.data.actorUserId,
           metadata: { monthlyUsed, purchasedUsed },
         },
-      });
-    }
+    });
+  }
 
-    const consumption = await transaction.documentCapacityConsumption.create({
+  const consumption = await transaction.documentCapacityConsumption.create({
       data: {
         workspaceId: parsed.data.workspaceId,
         allowancePeriodId: period.id,
@@ -139,17 +164,17 @@ export async function consumeDocumentCapacity(input: unknown) {
         allowanceUsedAfter,
         purchasedBalanceAfter,
         actorUserId: parsed.data.actorUserId,
+        documentId: parsed.data.documentId,
       },
       select: { id: true },
-    });
+  });
 
-    return {
+  return {
       consumptionId: consumption.id,
       monthlyUsed,
       purchasedUsed,
       allowanceUsed: allowanceUsedAfter,
       purchasedBalance: purchasedBalanceAfter,
       idempotent: false,
-    };
-  }, commercialTransactionOptions);
+  };
 }

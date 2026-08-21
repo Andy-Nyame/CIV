@@ -155,7 +155,7 @@ export function presentAuditEvent(event: PresentableAuditEvent) {
       case "DOCUMENT_DRAFT_ARCHIVED":
         return `${actor} archived draft ${metadataText(metadata, "draftReference", "document")}.`;
       case "DOCUMENT_ISSUED":
-        return `${actor} issued a document.`;
+        return `${actor} issued ${enumLabel(metadataText(metadata, "documentType", "document"))} ${metadataText(metadata, "documentNumber", "")}${metadata.customerName ? ` for ${metadataText(metadata, "customerName", "the customer")}` : ""}.`;
       case "DOCUMENT_VOIDED":
         return `${actor} voided a document.`;
       case "DOCUMENT_STATUS_CHANGED":

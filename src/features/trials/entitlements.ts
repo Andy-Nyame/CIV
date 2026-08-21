@@ -144,32 +144,28 @@ export async function resolveWorkspaceEntitlementsInTransaction(
     activeTrial = null;
   }
 
-  const [latestTrial, purchasedCredits] = await Promise.all([
-    activeTrial
-      ? Promise.resolve(activeTrial)
-      : transaction.workspaceTrial.findFirst({
-          where: { workspaceId },
-          orderBy: { createdAt: "desc" },
-          select: {
-            id: true,
-            status: true,
-            startsAt: true,
-            endsAt: true,
-            grantSource: true,
-            trialPlanId: true,
-            trialPlanCodeSnapshot: true,
-            trialPlanNameSnapshot: true,
-            trialMemberLimitSnapshot: true,
-            trialDocumentLimitSnapshot: true,
-            trialFeaturesSnapshot: true,
-            fallbackPlanCodeSnapshot: true,
-            fallbackPlanNameSnapshot: true,
-          },
-        }),
-    options.includePurchasedCredits === false
-      ? Promise.resolve(0)
-      : getPurchasedCreditBalance(transaction, workspaceId),
-  ]);
+  const latestTrial = activeTrial ?? await transaction.workspaceTrial.findFirst({
+    where: { workspaceId },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      status: true,
+      startsAt: true,
+      endsAt: true,
+      grantSource: true,
+      trialPlanId: true,
+      trialPlanCodeSnapshot: true,
+      trialPlanNameSnapshot: true,
+      trialMemberLimitSnapshot: true,
+      trialDocumentLimitSnapshot: true,
+      trialFeaturesSnapshot: true,
+      fallbackPlanCodeSnapshot: true,
+      fallbackPlanNameSnapshot: true,
+    },
+  });
+  const purchasedCredits = options.includePurchasedCredits === false
+    ? 0
+    : await getPurchasedCreditBalance(transaction, workspaceId);
 
   const effectivePlan = activeTrial
     ? {

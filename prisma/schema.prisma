@@ -236,6 +236,7 @@ model User {
   signatureProfile             SignatureProfile?
   sentInvitations              Invitation[]                  @relation("InvitationInviter")
   createdDocuments             Document[]                    @relation("DocumentCreator")
+  issuedDocuments              Document[]                    @relation("DocumentIssuer")
   createdCustomers             Customer[]                    @relation("CustomerCreator")
   createdCatalogueItems        ItemService[]                 @relation("ItemServiceCreator")
   auditEvents                  AuditEvent[]                  @relation("AuditActor")
@@ -573,6 +574,7 @@ model Document {
   id              String            @id @default(uuid()) @db.Uuid
   workspaceId     String            @db.Uuid
   createdByUserId String            @db.Uuid
+  issuedByUserId  String?           @db.Uuid
   customerId      String?           @db.Uuid
   taxVersionId    String?           @db.Uuid
   type            DocumentType
@@ -599,11 +601,13 @@ model Document {
   voidedAt        DateTime?         @db.Timestamptz(3)
   workspace       Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   createdBy       User              @relation("DocumentCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  issuedBy        User?             @relation("DocumentIssuer", fields: [issuedByUserId], references: [id], onDelete: Restrict)
   customer        Customer?         @relation(fields: [customerId], references: [id], onDelete: Restrict)
   taxVersion      TaxVersion?       @relation(fields: [taxVersionId], references: [id], onDelete: Restrict)
   lines           DocumentLine[]
   snapshot        DocumentSnapshot?
   files           DocumentFile[]
+  capacityConsumption DocumentCapacityConsumption?
 
   @@unique([workspaceId, type, documentNumber], map: "Document_official_number_key", where: { documentNumber: { not: null } })
   @@index([workspaceId])
@@ -615,6 +619,7 @@ model Document {
   @@index([workspaceId, draftReference])
   @@index([customerId])
   @@index([createdByUserId])
+  @@index([issuedByUserId])
   @@index([taxVersionId])
 }
 
@@ -981,10 +986,12 @@ model DocumentCapacityConsumption {
   allowanceUsedAfter    Int
   purchasedBalanceAfter Int
   actorUserId           String?                          @db.Uuid
+  documentId            String?                          @unique @db.Uuid
   createdAt             DateTime                         @default(now()) @db.Timestamptz(3)
   workspace             Workspace                        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   allowancePeriod       WorkspaceDocumentAllowancePeriod @relation(fields: [allowancePeriodId], references: [id], onDelete: Restrict)
   actor                 User?                            @relation("DocumentCapacityConsumptionActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  document              Document?                        @relation(fields: [documentId], references: [id], onDelete: Restrict)
 
   @@index([workspaceId, createdAt])
   @@index([allowancePeriodId])

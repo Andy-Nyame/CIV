@@ -155,7 +155,15 @@ export const auditMetadataSchemas = {
   DOCUMENT_DRAFT_ARCHIVED: z
     .object({ draftReference: z.string().trim().min(8).max(40) })
     .strict(),
-  DOCUMENT_ISSUED: z.object({}).strict(),
+  DOCUMENT_ISSUED: z
+    .object({
+      documentType: z.enum(["INVOICE", "RECEIPT", "VAT_INVOICE"]),
+      documentNumber: z.string().trim().min(5).max(100),
+      customerName: displayNameSchema.nullable(),
+      total: z.string().regex(/^\d+(\.\d{1,4})?$/),
+      currency: z.string().length(3),
+    })
+    .strict(),
   DOCUMENT_VOIDED: z.object({}).strict(),
   DOCUMENT_STATUS_CHANGED: z.object({}).strict(),
   CUSTOMER_CREATED: z.object({ customerName: displayNameSchema }).strict(),

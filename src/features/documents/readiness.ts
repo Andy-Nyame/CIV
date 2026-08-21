@@ -2,6 +2,7 @@ import "server-only";
 
 import { CAPABILITIES, getDocumentAccessFilter } from "@/features/authorization/capabilities";
 import { requireWorkspaceCapabilityInTransaction } from "@/features/business-data/authorization";
+import { businessDataTransactionOptions } from "@/features/business-data/locking";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { calculateTrustedTax } from "@/features/tax/calculation";
@@ -9,7 +10,7 @@ import { resolveGhanaVatVersion } from "@/features/tax/resolver";
 import { calculateDraftLine, calculateDraftTotals } from "./calculations";
 
 export type IssueReadinessCode =
-  | "DRAFT_UNAVAILABLE" | "NO_LINES" | "INVALID_TOTAL" | "INVALID_DATE"
+  | "DRAFT_UNAVAILABLE" | "UNSUPPORTED_TYPE" | "NO_LINES" | "INVALID_TOTAL" | "INVALID_DATE"
   | "CURRENCY_MISMATCH" | "CUSTOM_RATE_UNAVAILABLE" | "CUSTOMER_REQUIRED" | "CALCULATION_INVALID"
   | "ISSUER_TIN_REQUIRED" | "TRUSTED_TAX_UNAVAILABLE" | "TAX_CALCULATION_STALE";
 
@@ -20,7 +21,13 @@ export async function validateIssueReadiness(input: {
   workspaceId: string;
   documentId: string;
 }) {
-  return db.$transaction(async (transaction) => {
+  return db.$transaction((transaction) => validateIssueReadinessInTransaction(transaction, input), businessDataTransactionOptions);
+}
+
+export async function validateIssueReadinessInTransaction(
+  transaction: Prisma.TransactionClient,
+  input: { actorUserId: string; workspaceId: string; documentId: string },
+) {
     const membership = await requireWorkspaceCapabilityInTransaction(
       transaction, input.actorUserId, input.workspaceId, CAPABILITIES.ISSUE_DOCUMENT,
     );
@@ -32,6 +39,7 @@ export async function validateIssueReadiness(input: {
     if (!document) return { ready: false, errors: [{ code: "DRAFT_UNAVAILABLE", message: "The draft is unavailable for issue preparation." }] satisfies IssueReadinessError[] };
 
     const errors: IssueReadinessError[] = [];
+    if (!["INVOICE", "RECEIPT", "VAT_INVOICE"].includes(document.type)) errors.push({ code: "UNSUPPORTED_TYPE", message: "This document type cannot be issued yet.", field: "type" });
     if (!document.lines.length) errors.push({ code: "NO_LINES", message: "Add at least one valid line item.", field: "lines" });
     if (document.grandTotal.lte(0) || document.subtotal.lt(0)) errors.push({ code: "INVALID_TOTAL", message: "The draft must have a positive, valid total.", field: "grandTotal" });
     if (document.dueDate && document.dueDate < document.draftDate) errors.push({ code: "INVALID_DATE", message: "The due date cannot be before the document date.", field: "dueDate" });
@@ -58,6 +66,5 @@ export async function validateIssueReadiness(input: {
         errors.push({ code: "TRUSTED_TAX_UNAVAILABLE", message: "A valid trusted Ghana VAT configuration is not available for this date.", field: "draftDate" });
       }
     }
-    return { ready: errors.length === 0, errors };
-  });
+  return { ready: errors.length === 0, errors };
 }
