@@ -40,6 +40,7 @@ export const AUDIT_ACTIONS = {
   ITEM_UPDATED: "ITEM_UPDATED",
   RATE_CREATED: "RATE_CREATED",
   RATE_UPDATED: "RATE_UPDATED",
+  RATE_DEACTIVATED: "RATE_DEACTIVATED",
 } as const;
 
 export type AuditAction =
@@ -104,6 +105,7 @@ export const AUDIT_ACTION_RESOURCE = {
   ITEM_UPDATED: AUDIT_RESOURCE_TYPES.ITEM,
   RATE_CREATED: AUDIT_RESOURCE_TYPES.RATE,
   RATE_UPDATED: AUDIT_RESOURCE_TYPES.RATE,
+  RATE_DEACTIVATED: AUDIT_RESOURCE_TYPES.RATE,
 } as const satisfies Record<AuditAction, AuditResourceType>;
 
 export function isAuditAction(value: string): value is AuditAction {

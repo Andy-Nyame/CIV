@@ -22,6 +22,11 @@ export const platformNavigation = [
     capability: PLATFORM_CAPABILITIES.VIEW_PLANS,
   },
   {
+    label: "Taxes",
+    href: "/civ-admin/taxes",
+    capability: PLATFORM_CAPABILITIES.VIEW_PLATFORM_ANALYTICS,
+  },
+  {
     label: "Credits",
     href: "/civ-admin/credits",
     capability: PLATFORM_CAPABILITIES.VIEW_PLANS,

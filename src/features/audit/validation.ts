@@ -166,8 +166,9 @@ export const auditMetadataSchemas = {
   ITEM_UPDATED: z
     .object({ itemName: displayNameSchema, changedFields: z.array(z.string().max(40)).max(10) })
     .strict(),
-  RATE_CREATED: z.object({}).strict(),
-  RATE_UPDATED: z.object({}).strict(),
+  RATE_CREATED: z.object({ rateName: displayNameSchema, rateType: z.enum(["PERCENTAGE", "FIXED"]) }).strict(),
+  RATE_UPDATED: z.object({ rateName: displayNameSchema, rateType: z.enum(["PERCENTAGE", "FIXED"]) }).strict(),
+  RATE_DEACTIVATED: z.object({ rateName: displayNameSchema, rateType: z.enum(["PERCENTAGE", "FIXED"]) }).strict(),
 } as const;
 
 export const auditEventBaseSchema = z.object({

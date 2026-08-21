@@ -1,0 +1,7 @@
+import { notFound } from "next/navigation";
+import { CustomRateForm } from "@/components/ui/custom-rate-form";
+import { PageHeading } from "@/components/ui/page-heading";
+import { setCustomRateActiveAction } from "@/features/rates/actions";
+import { getCustomRateForEdit } from "@/features/rates/queries";
+
+export default async function EditCustomRatePage({ params }: { params: Promise<{ rateId: string }> }) { const { rateId }=await params; const data=await getCustomRateForEdit(rateId); if(!data.rate) notFound(); const rate=data.rate; return <div><PageHeading title="Edit Custom Rate" description="Changes affect only intentional future selections; saved line snapshots remain stable."/><div className="mt-8 max-w-2xl rounded-xl border border-border bg-surface p-5 sm:p-7"><CustomRateForm rate={{id:rate.id,name:rate.name,type:rate.type,value:rate.value.toString(),description:rate.description}}/><form action={setCustomRateActiveAction.bind(null,rate.id,!rate.isActive)} className="mt-6 border-t border-border pt-5"><input type="hidden" name="name" value={rate.name}/><input type="hidden" name="type" value={rate.type}/><input type="hidden" name="value" value={rate.value.toString()}/><input type="hidden" name="description" value={rate.description??""}/><button className="min-h-11 rounded-lg border border-border px-4 text-sm font-semibold text-text">{rate.isActive?"Deactivate":"Reactivate"} Rate</button></form></div></div>; }

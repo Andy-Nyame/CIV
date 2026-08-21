@@ -6,6 +6,7 @@ import { addUtcMonth } from "../src/features/commercial/periods";
 import { createCatalogueItem } from "../src/features/catalog/service";
 import { createCustomer } from "../src/features/customers/service";
 import { createDraft } from "../src/features/documents/service";
+import { createCustomRate } from "../src/features/rates/service";
 import { db } from "../src/lib/db";
 
 const baseUrl = process.env.CIV_TEST_BASE_URL ?? "http://localhost:3021";
@@ -75,10 +76,12 @@ const isolatedWorkspace = await db.workspace.create({
   select: { id: true, name: true },
 });
 workspaceIds.push(isolatedWorkspace.id);
+await db.platformMembership.create({ data: { userId: owner.id, role: "ANALYST", status: "ACTIVE" } });
 
 try {
   const customer = await createCustomer({ actorUserId: owner.id, workspaceId: workspace.id, data: { name: "CREATE Route Customer", email: "route@example.invalid", phone: "", address: "Accra", businessTin: "", notes: "" } });
   const item = await createCatalogueItem({ actorUserId: owner.id, workspaceId: workspace.id, data: { name: "CREATE Route Service", description: "Route fixture", type: "SERVICE", unitPrice: "25.00", currency: "GHS", unitLabel: "service", sku: `ROUTE-${suffix.slice(0, 8)}` } });
+  const rate = await createCustomRate({ actorUserId: owner.id, workspaceId: workspace.id, data: { name: "CREATE Route Levy", type: "PERCENTAGE", value: "5", description: "Route custom rate" } });
   const ownerDraft = await createDraft({ actorUserId: owner.id, workspaceId: workspace.id, data: { type: "VAT_INVOICE", customerId: customer.id, currency: "GHS", draftDate: "2026-08-21", dueDate: "", notes: "Owner-only route draft", lines: [{ catalogItemId: item.id, customRateId: null, description: "CREATE Route Service", quantity: "2", unitPrice: "25.00" }] } });
   const staffDraft = await createDraft({ actorUserId: staff.id, workspaceId: workspace.id, data: { type: "RECEIPT", customerId: customer.id, currency: "GHS", draftDate: "2026-08-21", dueDate: "", notes: "Staff-own route draft", lines: [{ catalogItemId: null, customRateId: null, description: "Staff service", quantity: "1", unitPrice: "10.00" }] } });
 
@@ -96,6 +99,8 @@ try {
     ["/app/documents", ownerDraft.draftReference],
     ["/app/documents/new?type=VAT_INVOICE", "VAT invoice"],
     [`/app/documents/${ownerDraft.id}`, ownerDraft.draftReference],
+    ["/app/settings/rates", rate.name],
+    ["/civ-admin/taxes", "Ghana Standard VAT"],
   ] as const;
   for (const [path, expected] of ownerExpectations) {
     const response = await fetch(`${baseUrl}${path}`, { headers: { Cookie: cookieHeader(ownerCookies) } });
@@ -103,6 +108,11 @@ try {
     assert.equal(response.status, 200, path);
     assert.match(page, new RegExp(expected));
     assert.doesNotMatch(page, /passwordHash|DATABASE_URL|PAYSTACK_SECRET_KEY|R2_SECRET_ACCESS_KEY/);
+    if (path.includes("VAT_INVOICE") || path.includes(ownerDraft.id)) {
+      assert.match(page, /Ghana Standard VAT/);
+      assert.match(page, /NHIL/);
+      assert.match(page, /GETFUND/);
+    }
   }
 
   const staffCookies = await signIn(staff.email!);
@@ -118,6 +128,11 @@ try {
     assert.equal(response.status, 200);
     assert.doesNotMatch(page, new RegExp(forbiddenCopy));
   }
+  const staffRates = await fetch(`${baseUrl}/app/settings/rates`, { headers: { Cookie: cookieHeader(staffCookies) } });
+  const staffRatesPage = await staffRates.text();
+  assert.equal(staffRates.status, 200);
+  assert.match(staffRatesPage, new RegExp(rate.name));
+  assert.doesNotMatch(staffRatesPage, /New custom rate|>Edit<\/a>/);
   const staffCrossDraft = await fetch(`${baseUrl}/app/documents/${ownerDraft.id}`, { headers: { Cookie: cookieHeader(staffCookies) } });
   assert.equal(staffCrossDraft.status, 404);
 
@@ -131,15 +146,17 @@ try {
   assert.doesNotMatch(isolatedPage, new RegExp(ownerDraft.draftReference));
   assert.doesNotMatch(isolatedPage, new RegExp(staffDraft.draftReference));
 
-  console.log("PASS CREATE routes, signed-out protection, staff-own filtering, mutation-control visibility, and workspace isolation");
+  console.log("PASS CREATE routes, trusted tax visibility, custom-rate authorization, platform tax visibility, signed-out protection, staff-own filtering, and workspace isolation");
 } finally {
   if (workspaceIds.length) {
     await db.auditEvent.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
     await db.document.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
+    await db.customRate.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
     await db.itemService.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
     await db.customer.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
     await db.workspaceDocumentAllowancePeriod.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
     await db.subscription.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
+    await db.platformMembership.deleteMany({ where: { userId: { in: userIds } } });
     await db.membership.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
     await db.workspace.deleteMany({ where: { id: { in: workspaceIds } } });
   }

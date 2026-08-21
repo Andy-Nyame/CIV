@@ -58,6 +58,7 @@ export default async function SettingsPage() {
               <Link href="/app/settings/plan" className="min-h-11 rounded-lg bg-civ-blue px-4 py-3 text-center text-sm font-semibold text-white hover:bg-civ-blue-hover">Open Plan & Storage</Link>
               <Link href="/app/settings/credits" className="min-h-11 rounded-lg border border-civ-blue px-4 py-3 text-center text-sm font-semibold text-link hover:bg-hover">Document Credits</Link>
               <Link href="/app/settings/billing" className="min-h-11 rounded-lg border border-border px-4 py-3 text-center text-sm font-semibold text-text hover:bg-hover">Billing</Link>
+              <Link href="/app/settings/rates" className="min-h-11 rounded-lg border border-border px-4 py-3 text-center text-sm font-semibold text-text hover:bg-hover">Custom Rates</Link>
             </div>
           ) : (
             <span className="text-sm text-muted">Available to Owners and Admins.</span>

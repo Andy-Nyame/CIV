@@ -12,6 +12,7 @@ import { calculateDraftLine, calculateDraftTotals } from "./calculations";
 import { archiveDraft, createDraft, updateDraft } from "./service";
 
 type DraftLineInput = {
+  id?: string;
   catalogItemId: string | null;
   customRateId: string | null;
   description: string;
@@ -51,8 +52,8 @@ test("draft calculations use exact Decimal arithmetic and reject unsafe values",
   ];
   const totals = calculateDraftTotals(lines);
   assert.equal(totals.subtotal.toFixed(4), "1110.5000");
-  assert.equal(totals.rateTotal.toFixed(4), "25.0125");
-  assert.equal(totals.grandTotal.toFixed(4), "1135.5125");
+  assert.equal(totals.rateTotal.toFixed(4), "25.0100");
+  assert.equal(totals.grandTotal.toFixed(4), "1135.5100");
   assert.throws(() => calculateDraftLine({ description: "Negative", quantity: "1", unitPrice: "-0.01" }));
   assert.throws(() => calculateDraftLine({ description: "Zero quantity", quantity: "0", unitPrice: "1" }));
   assert.throws(() => calculateDraftLine({ description: "Malformed", quantity: "not-a-number", unitPrice: "1" }));
@@ -163,7 +164,7 @@ test("customers, catalogue entries, and drafts are isolated, authorized, snapsho
       actorUserId: owner.id,
       workspaceId: workspace.id,
       data: draftData({
-        type: "VAT_INVOICE",
+        type: "INVOICE",
         customerId: customer.id,
         lines: [
           { catalogItemId: null, customRateId: null, description: "Exact penny", quantity: "1", unitPrice: "0.01" },
@@ -178,10 +179,10 @@ test("customers, catalogue entries, and drafts are isolated, authorized, snapsho
     assert.equal(draft.status, "DRAFT");
     assert.equal(draft.createdByUserId, owner.id);
     assert.equal(draft.customerId, customer.id);
-    assert.equal(draft.type, "VAT_INVOICE");
+    assert.equal(draft.type, "INVOICE");
     assert.equal(draft.subtotal.toFixed(4), "1110.5000");
-    assert.equal(draft.rateTotal.toFixed(4), "25.0125");
-    assert.equal(draft.grandTotal.toFixed(4), "1135.5125");
+    assert.equal(draft.rateTotal.toFixed(4), "25.0100");
+    assert.equal(draft.grandTotal.toFixed(4), "1135.5100");
     assert.equal(draft.lines[2]?.description, "Logo Design");
     assert.equal(draft.lines[2]?.unitPrice.toFixed(4), "99.9900");
     assert.equal(draft.lines[3]?.rateNameSnapshot, "CREATE Test Rate");
@@ -256,11 +257,11 @@ test("customers, catalogue entries, and drafts are isolated, authorized, snapsho
       workspaceId: workspace.id,
       documentId: draft.id,
       data: draftData({
-        type: "VAT_INVOICE",
+        type: "INVOICE",
         customerId: customer.id,
         lines: [
-          { catalogItemId: item.id, customRateId: null, description: "Logo Design", quantity: "1", unitPrice: "99.99" },
-          { catalogItemId: null, customRateId: rate.id, description: "Large service", quantity: "1", unitPrice: "1000.50" },
+          { id: draft.lines[2]!.id, catalogItemId: item.id, customRateId: null, description: "Logo Design", quantity: "1", unitPrice: "99.99" },
+          { id: draft.lines[3]!.id, catalogItemId: null, customRateId: rate.id, description: "Large service", quantity: "1", unitPrice: "1000.50" },
         ],
       }),
     });

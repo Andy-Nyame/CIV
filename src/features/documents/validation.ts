@@ -19,5 +19,9 @@ export const draftInputSchema = z.object({
   dueDate: dateSchema,
   notes: z.string().trim().max(4_000).transform((value) => value || null),
   lines: z.array(draftLineInputSchema).min(1).max(100),
+}).superRefine((value, context) => {
+  if (value.dueDate && value.dueDate < value.draftDate) context.addIssue({ code: "custom", path: ["dueDate"], message: "Due date cannot be before the draft date." });
+  if (value.type === "VAT_INVOICE" && value.currency !== "GHS") context.addIssue({ code: "custom", path: ["currency"], message: "Ghana VAT invoices must use GHS." });
+  if (value.type === "VAT_INVOICE" && value.lines.some((line) => line.customRateId)) context.addIssue({ code: "custom", path: ["lines"], message: "Trusted Ghana VAT cannot be combined with workspace custom rates." });
 });
 export const documentIdSchema = z.string().uuid();

@@ -2,7 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 
 const ZERO = new Prisma.Decimal(0);
 const MAX = new Prisma.Decimal("999999999999999.9999");
-const money = (value: Prisma.Decimal) => value.toDecimalPlaces(4, Prisma.Decimal.ROUND_HALF_UP);
+const money = (value: Prisma.Decimal) => value.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
 export type CalculatedLine = {
   description: string; quantity: Prisma.Decimal; unitPrice: Prisma.Decimal;

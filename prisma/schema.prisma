@@ -49,6 +49,11 @@ enum ItemServiceType {
   SERVICE
 }
 
+enum TaxCalculationBase {
+  ORIGINAL_BASE
+  BASE_PLUS_APPLICABLE_LEVIES
+}
+
 enum DocumentStatus {
   DRAFT
   ISSUED
@@ -385,6 +390,7 @@ model Workspace {
   payments                     Payment[]
   paymentRefunds               PaymentRefund[]
   subscriptionChanges          SubscriptionChange[]
+  documentNumberSequences      DocumentNumberSequence[]
 
   @@index([type])
   @@index([archivedAt])
@@ -542,19 +548,22 @@ model TaxVersion {
 }
 
 model TaxComponent {
-  id               String     @id @default(uuid()) @db.Uuid
-  taxVersionId     String     @db.Uuid
-  code             String     @db.VarChar(100)
-  name             String     @db.VarChar(200)
-  type             RateType   @default(PERCENTAGE)
-  scope            RateScope  @default(STATUTORY)
-  rate             Decimal    @db.Decimal(19, 6)
-  calculationOrder Int
-  baseReference    String?    @db.VarChar(100)
-  metadata         Json?
-  createdAt        DateTime   @default(now()) @db.Timestamptz(3)
-  updatedAt        DateTime   @updatedAt @db.Timestamptz(3)
-  taxVersion       TaxVersion @relation(fields: [taxVersionId], references: [id], onDelete: Restrict)
+  id                        String             @id @default(uuid()) @db.Uuid
+  taxVersionId              String             @db.Uuid
+  code                      String             @db.VarChar(100)
+  name                      String             @db.VarChar(200)
+  type                      RateType           @default(PERCENTAGE)
+  scope                     RateScope          @default(STATUTORY)
+  rate                      Decimal            @db.Decimal(19, 6)
+  calculationOrder          Int
+  baseStrategy              TaxCalculationBase @default(ORIGINAL_BASE)
+  contributesToTaxableValue Boolean            @default(false)
+  contributesToTotal        Boolean            @default(true)
+  baseReference             String?            @db.VarChar(100)
+  metadata                  Json?
+  createdAt                 DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt                 DateTime           @updatedAt @db.Timestamptz(3)
+  taxVersion                TaxVersion         @relation(fields: [taxVersionId], references: [id], onDelete: Restrict)
 
   @@unique([taxVersionId, code])
   @@index([taxVersionId, calculationOrder])
@@ -579,6 +588,9 @@ model Document {
   subtotal        Decimal           @default(0) @db.Decimal(19, 4)
   discountTotal   Decimal           @default(0) @db.Decimal(19, 4)
   rateTotal       Decimal           @default(0) @db.Decimal(19, 4)
+  taxableValue    Decimal           @default(0) @db.Decimal(19, 4)
+  taxTotal        Decimal           @default(0) @db.Decimal(19, 4)
+  taxCalculation  Json?
   grandTotal      Decimal           @default(0) @db.Decimal(19, 4)
   createdAt       DateTime          @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
@@ -604,6 +616,19 @@ model Document {
   @@index([customerId])
   @@index([createdByUserId])
   @@index([taxVersionId])
+}
+
+model DocumentNumberSequence {
+  id           String       @id @default(uuid()) @db.Uuid
+  workspaceId  String       @db.Uuid
+  documentType DocumentType
+  currentValue BigInt       @default(0)
+  createdAt    DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime     @updatedAt @db.Timestamptz(3)
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+
+  @@unique([workspaceId, documentType])
+  @@index([workspaceId])
 }
 
 model DocumentLine {

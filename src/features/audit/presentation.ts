@@ -50,6 +50,7 @@ const actionLabels: Record<AuditAction, string> = {
   ITEM_UPDATED: "Item updated",
   RATE_CREATED: "Rate created",
   RATE_UPDATED: "Rate updated",
+  RATE_DEACTIVATED: "Rate deactivated",
 };
 
 function metadataObject(metadata: Prisma.JsonValue | null) {
@@ -171,6 +172,8 @@ export function presentAuditEvent(event: PresentableAuditEvent) {
         return `${actor} created a rate.`;
       case "RATE_UPDATED":
         return `${actor} updated a rate.`;
+      case "RATE_DEACTIVATED":
+        return `${actor} deactivated a custom rate.`;
       default:
         return `${actor} performed an important workspace action.`;
     }
