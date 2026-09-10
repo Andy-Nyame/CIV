@@ -13,6 +13,7 @@ import { resolveGhanaVatVersion } from "@/features/tax/resolver";
 import { buildTaxSnapshot } from "@/features/tax/snapshot";
 import { authorizeWorkspaceDocumentReadinessInTransaction } from "@/features/workspaces/document-readiness-service";
 import { evaluateWorkspaceDocumentReadiness } from "@/features/workspaces/document-readiness";
+import { generateVerificationCode } from "@/features/documents/verification/code";
 
 import { calculateDraftLine, calculateDraftTotals } from "./calculations";
 import { allocateOfficialDocumentNumber } from "./numbering";
@@ -43,6 +44,7 @@ function issuedResult(document: {
   workspaceId: string;
   status: string;
   documentNumber: string | null;
+  verificationCode: string | null;
   issuedAt: Date | null;
   snapshot: { id: string; snapshotVersion: number; payload: Prisma.JsonValue } | null;
   capacityConsumption: { id: string } | null;
@@ -56,11 +58,15 @@ function issuedResult(document: {
   ) {
     throw new DocumentIssueConflictError("The issued document record is incomplete.");
   }
-  issuedDocumentSnapshotSchema.parse(document.snapshot.payload);
+  const snapshot = issuedDocumentSnapshotSchema.parse(document.snapshot.payload);
+  if ((snapshot.verification?.code ?? null) !== document.verificationCode) {
+    throw new DocumentIssueConflictError("The issued document verification identity is inconsistent.");
+  }
   return {
     documentId: document.id,
     workspaceId: document.workspaceId,
     documentNumber: document.documentNumber,
+    verificationCode: document.verificationCode,
     issuedAt: document.issuedAt,
     snapshotId: document.snapshot.id,
     snapshotVersion: document.snapshot.snapshotVersion,
@@ -69,16 +75,10 @@ function issuedResult(document: {
   };
 }
 
-export async function issueDocument(input: {
+async function issueDocumentOnce(input: {
   actorUserId: string;
   workspaceId: string;
-  documentId: unknown;
-}, client: typeof db = db) {
-  const parsedId = documentIdSchema.safeParse(input.documentId);
-  if (!parsedId.success) {
-    throw new BusinessDataValidationError({ documentId: ["Invalid document."] });
-  }
-  const documentId = parsedId.data;
+}, documentId: string, verificationCode: string, client: typeof db) {
   return client.$transaction(async (transaction) => {
     await lockBusinessResource(transaction, `document:${documentId}`);
     const authorization = await authorizeWorkspaceDocumentReadinessInTransaction({ actorUserId: input.actorUserId, workspaceId: input.workspaceId, capability: CAPABILITIES.ISSUE_DOCUMENT }, transaction);
@@ -206,6 +206,7 @@ export async function issueDocument(input: {
     const snapshot = buildIssuedDocumentSnapshot({
       document: { ...authoritativeDocument, type: documentType },
       documentNumber,
+      verificationCode,
       issuedAt,
       actor,
     });
@@ -222,6 +223,7 @@ export async function issueDocument(input: {
       data: {
         status: "ISSUED",
         documentNumber,
+        verificationCode,
         issueDate: draft.draftDate,
         issuedAt,
         issuedByUserId: input.actorUserId,
@@ -246,6 +248,7 @@ export async function issueDocument(input: {
       documentId,
       workspaceId: input.workspaceId,
       documentNumber,
+      verificationCode,
       issuedAt,
       snapshotId: persistedSnapshot.id,
       snapshotVersion: persistedSnapshot.snapshotVersion,
@@ -253,4 +256,36 @@ export async function issueDocument(input: {
       idempotent: false,
     };
   }, { ...businessDataTransactionOptions, timeout: 45_000 });
+}
+
+function isVerificationCodeCollision(error: unknown) {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return false;
+  const metadata = JSON.stringify(error.meta ?? {});
+  return metadata.includes("civDocumentId") || metadata.includes("verificationCode");
+}
+
+export async function issueDocument(input: {
+  actorUserId: string;
+  workspaceId: string;
+  documentId: unknown;
+}, client: typeof db = db, options: { generateCode?: () => string } = {}) {
+  const parsedId = documentIdSchema.safeParse(input.documentId);
+  if (!parsedId.success) {
+    throw new BusinessDataValidationError({ documentId: ["Invalid document."] });
+  }
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      return await issueDocumentOnce(
+        { actorUserId: input.actorUserId, workspaceId: input.workspaceId },
+        parsedId.data,
+        (options.generateCode ?? generateVerificationCode)(),
+        client,
+      );
+    } catch (error) {
+      if (!isVerificationCodeCollision(error)) throw error;
+      if (attempt === 4) throw new DocumentIssueConflictError("Unable to allocate a unique CIV verification code.");
+    }
+  }
+  throw new DocumentIssueConflictError("Unable to allocate a unique CIV verification code.");
 }

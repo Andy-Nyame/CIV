@@ -21,6 +21,7 @@ function snapshotFixture(overrides: {
   lineCount?: number;
   workspaceId?: string;
   customRate?: { name: string; type: "PERCENTAGE" | "FIXED"; value: string; amount: string };
+  verificationCode?: string | null;
 } = {}): IssuedDocumentSnapshot {
   const documentId = overrides.documentId ?? randomUUID();
   const type = overrides.type ?? "INVOICE";
@@ -100,7 +101,7 @@ function snapshotFixture(overrides: {
     },
     issuedBy: { userId: randomUUID(), displayName: "Issuing Member" },
     presentation: { template: null, signature: null },
-    verification: null,
+    verification: overrides.verificationCode ? { code: overrides.verificationCode } : null,
   });
 }
 
@@ -153,11 +154,23 @@ test("historical snapshots without newer TEST and taxpayer fields remain readabl
   delete (historical.document as Record<string, unknown>).isTestDocument;
   const issuer = historical.issuer as Record<string, unknown>;
   for (const field of ["legalName", "tradingName", "taxpayerIdType", "taxpayerId", "taxpayerVerificationStatus", "vatRegistered"]) delete issuer[field];
+  delete historical.verification;
   const parsed = issuedDocumentSnapshotSchema.parse(historical);
   const model = buildIssuedDocumentPdfModel(parsed, false);
   assert.equal(model.isTestDocument, false);
   assert.equal(model.issuer.legalName, "Snapshot Trading Name");
   assert.equal(model.issuer.taxpayerId, "LEGACY-TIN");
+  assert.equal(model.verificationCode, null);
+});
+
+test("verified PDFs contain the immutable code and a rendered barcode image", async () => {
+  const verificationCode = "CIV-7K4M-92PX-H6Q2";
+  const model = buildIssuedDocumentPdfModel(snapshotFixture({ verificationCode }), false);
+  assert.equal(model.verificationCode, verificationCode);
+  const bytes = await renderIssuedDocumentPdf(model);
+  const parsed = await PDFDocument.load(bytes);
+  assert.match(parsed.getKeywords() ?? "", new RegExp(verificationCode));
+  assert.equal(Buffer.from(bytes).includes(Buffer.from("/Subtype /Image")), true);
 });
 
 test("PDF rendering produces A4 multi-page output and visible TEST metadata", async () => {
@@ -240,6 +253,7 @@ test("PDF source authorization is tenant-safe and reads immutable snapshots only
           type: args.snapshot.document.type,
           status: "ISSUED",
           isTestDocument: args.isTestDocument,
+          verificationCode: args.snapshot.verification?.code ?? null,
           draftReference: args.snapshot.document.draftReference,
           documentNumber: args.snapshot.document.documentNumber,
           currency: args.snapshot.document.currency,
@@ -266,9 +280,10 @@ test("PDF source authorization is tenant-safe and reads immutable snapshots only
       customerId: customer.id,
       workspaceId: workspace.id,
       customRate: { name: "Snapshot Service Levy", type: "PERCENTAGE", value: "3.000000", amount: "3.00" },
+      verificationCode: "CIV-7K4M-92PX-H6Q2",
     });
     const normalDocument = await persistIssuedDocument({ workspaceId: workspace.id, creatorId: owner.id, isTestDocument: false, snapshot: normalSnapshot, customerId: customer.id });
-    const testSnapshot = snapshotFixture({ isTestDocument: true, workspaceId: testWorkspace.id });
+    const testSnapshot = snapshotFixture({ isTestDocument: true, workspaceId: testWorkspace.id, verificationCode: "CIV-3N7W-8R5Y-K9QM" });
     const testDocument = await persistIssuedDocument({ workspaceId: testWorkspace.id, creatorId: superAdmin.id, isTestDocument: true, snapshot: testSnapshot });
 
     await t.test("an authorized workspace member can load an eligible issued PDF source", async () => {

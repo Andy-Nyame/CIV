@@ -131,7 +131,7 @@ function ProductPreview() {
         </div>
       </div>
       <figcaption id="product-preview-caption" className="mt-4 max-w-xl text-xs leading-5 text-muted">
-        An interface preview using CIV&apos;s real design language. Workspace, team, plans and account foundations are available; document creation and verification tools are being built.
+        An interface preview using CIV&apos;s real design language. Workspace, document, PDF, and CIV-native verification foundations are available.
       </figcaption>
     </figure>
   );
@@ -151,6 +151,7 @@ export default function HomePage() {
             <a className="text-sm font-semibold text-muted hover:text-text" href="#how-it-works">How it works</a>
             <a className="text-sm font-semibold text-muted hover:text-text" href="#security">Security</a>
             <a className="text-sm font-semibold text-muted hover:text-text" href="#plans">Plans</a>
+            <Link className="text-sm font-semibold text-muted hover:text-text" href="/verify">Verify</Link>
           </nav>
 
           <div className="hidden items-center gap-2 sm:flex">
@@ -168,6 +169,7 @@ export default function HomePage() {
                 <a className="min-h-11 rounded-lg px-3 py-3 text-sm font-semibold text-text hover:bg-hover" href="#how-it-works">How it works</a>
                 <a className="min-h-11 rounded-lg px-3 py-3 text-sm font-semibold text-text hover:bg-hover" href="#security">Security</a>
                 <a className="min-h-11 rounded-lg px-3 py-3 text-sm font-semibold text-text hover:bg-hover" href="#plans">Plans</a>
+                <Link className="min-h-11 rounded-lg px-3 py-3 text-sm font-semibold text-text hover:bg-hover" href="/verify">Verify a Document</Link>
                 <span className="my-1 border-t border-border" />
                 <Link className="min-h-11 rounded-lg px-3 py-3 text-sm font-semibold text-text hover:bg-hover" href="/login">Sign In</Link>
                 <Link className="min-h-11 rounded-lg bg-civ-blue px-3 py-3 text-sm font-bold text-white" href="/signup">Get Started Free</Link>
@@ -210,7 +212,7 @@ export default function HomePage() {
                 <h2 id="civ-method-title" className="mt-4 text-3xl font-bold tracking-tight text-text sm:text-4xl">Three words. One clear record journey.</h2>
               </div>
               <p className="max-w-2xl text-base leading-8 text-muted sm:text-lg">
-                CIV is being built around the full life of a business document—from preparation to a dependable issued record and, ultimately, recipient verification.
+                CIV supports the full life of a business document—from preparation to a dependable issued record and recipient verification.
               </p>
             </div>
 
@@ -228,7 +230,7 @@ export default function HomePage() {
               <li className="grid gap-4 border-t border-border py-8 sm:grid-cols-[5rem_12rem_1fr] sm:items-start">
                 <span className="font-mono text-sm font-bold text-link">03</span>
                 <h3 className="text-2xl font-bold text-text">Verify</h3>
-                <div><p className="max-w-2xl leading-7 text-muted">Give CIV-issued records a structured identity so recipients can check authenticity. Verification services are being developed and do not imply government or GRA certification.</p><p className="mt-2 text-xs font-semibold uppercase tracking-wide text-link">Product vision</p></div>
+                <div><p className="max-w-2xl leading-7 text-muted">Give CIV-issued records a persisted identity so recipients can check them using the document&apos;s CIV verification code. This does not imply government or GRA certification.</p><p className="mt-2 text-xs font-semibold uppercase tracking-wide text-link">CIV-native verification</p></div>
               </li>
             </ol>
           </div>

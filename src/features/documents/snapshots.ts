@@ -54,7 +54,7 @@ export const issuedDocumentSnapshotSchema = z.object({
   totals: z.object({ subtotal: moneySchema, discount: moneySchema, customRates: moneySchema, taxableValue: moneySchema, trustedTax: moneySchema, grandTotal: moneySchema }).strict(),
   issuedBy: z.object({ userId: z.string().uuid(), displayName: z.string().min(1).max(320) }).strict(),
   presentation: z.object({ template: z.null(), signature: z.null() }).strict(),
-  verification: z.object({ code: z.string().min(1).max(200) }).strict().nullable(),
+  verification: z.object({ code: z.string().min(1).max(200) }).strict().nullable().optional().default(null),
 }).strict();
 
 export type IssuedDocumentSnapshot = z.infer<typeof issuedDocumentSnapshotSchema>;
@@ -140,6 +140,7 @@ export function buildIssuedDocumentSnapshot(input: {
     lines: Parameters<typeof buildLineSnapshots>[0];
   };
   documentNumber: string;
+  verificationCode: string;
   issuedAt: Date;
   actor: { id: string; name: string | null; email: string | null };
 }) {
@@ -172,7 +173,7 @@ export function buildIssuedDocumentSnapshot(input: {
     },
     issuedBy: { userId: input.actor.id, displayName: input.actor.name?.trim() || input.actor.email || "Workspace member" },
     presentation: { template: null, signature: null },
-    verification: null,
+    verification: { code: input.verificationCode },
   };
   return issuedDocumentSnapshotSchema.parse(payload);
 }

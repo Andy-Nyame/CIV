@@ -16,6 +16,7 @@ import { synchronizeGhanaVat2026ReferenceData } from "../../../prisma/reference-
 import { issueDocument } from "./issuance";
 import { archiveDraft, createDraft, updateDraft } from "./service";
 import { issuedDocumentSnapshotSchema } from "./snapshots";
+import { generateVerificationCode, VERIFICATION_CODE_PATTERN } from "./verification/code";
 
 type FixtureWorkspace = { id: string; ownerId: string; staffId: string };
 
@@ -99,19 +100,24 @@ test("ISSUE Phase 1 is atomic, immutable, authorized, and exactly once under con
 
     const first = await issueDocument({ actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: invoice.id });
     assert.match(first.documentNumber, /^INV-\d{6}$/);
+    assert.ok(first.verificationCode);
+    assert.match(first.verificationCode, VERIFICATION_CODE_PATTERN);
     assert.equal(first.idempotent, false);
     const retry = await issueDocument({ actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: invoice.id });
     assert.equal(retry.documentNumber, first.documentNumber);
     assert.equal(retry.snapshotId, first.snapshotId);
     assert.equal(retry.capacityConsumptionId, first.capacityConsumptionId);
+    assert.equal(retry.verificationCode, first.verificationCode);
     assert.equal(retry.idempotent, true);
     const issued = await db.document.findUniqueOrThrow({ where: { id: invoice.id }, include: { snapshot: true, capacityConsumption: true } });
     assert.equal(issued.status, "ISSUED");
     assert.equal(issued.issuedByUserId, monthly.ownerId);
     assert.equal(issued.issueDate?.toISOString().slice(0, 10), "2026-08-21");
     assert.equal(issued.documentNumber, first.documentNumber);
+    assert.equal(issued.verificationCode, first.verificationCode);
     assert.ok(issued.issuedAt && issued.snapshot && issued.capacityConsumption);
     const originalSnapshot = structuredClone(issuedDocumentSnapshotSchema.parse(issued.snapshot.payload));
+    assert.equal(originalSnapshot.verification?.code, first.verificationCode);
     assert.equal(originalSnapshot.customer?.name, "Ama Customer");
     assert.equal(originalSnapshot.issuer.displayName.startsWith("ISSUE monthly"), true);
     assert.equal(originalSnapshot.lines[0]?.customRate?.name, "Service fee");
@@ -119,6 +125,7 @@ test("ISSUE Phase 1 is atomic, immutable, authorized, and exactly once under con
     assert.equal(await db.documentCapacityConsumption.count({ where: { documentId: invoice.id } }), 1);
     assert.equal(await db.auditEvent.count({ where: { workspaceId: monthly.id, action: "DOCUMENT_ISSUED", resourceId: invoice.id } }), 1);
     assert.equal((await db.workspaceDocumentAllowancePeriod.findFirstOrThrow({ where: { workspaceId: monthly.id } })).used, 1);
+    await assert.rejects(db.document.update({ where: { id: invoice.id }, data: { verificationCode: generateVerificationCode() } }));
 
     await updateCustomer({ actorUserId: monthly.ownerId, workspaceId: monthly.id, customerId: customer.id, data: { name: "Changed Customer", email: "changed@example.invalid", phone: "", address: "Changed address", businessTin: "CHANGED", notes: "" } });
     await updateCatalogueItem({ actorUserId: monthly.ownerId, workspaceId: monthly.id, itemId: item.id, data: { name: "Changed catalogue", description: "Changed", type: "SERVICE", unitPrice: "999.00", currency: "GHS", unitLabel: "service", sku: item.sku ?? "" } });
@@ -129,6 +136,7 @@ test("ISSUE Phase 1 is atomic, immutable, authorized, and exactly once under con
     await assert.rejects(archiveDraft({ actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: invoice.id }), WorkspaceAuthorizationError);
 
     const staffDraft = await createDraft({ actorUserId: monthly.staffId, workspaceId: monthly.id, data: draftData({ type: "RECEIPT" }) });
+    await assert.rejects(db.document.update({ where: { id: staffDraft.id }, data: { verificationCode: first.verificationCode } }));
     await assert.rejects(issueDocument({ actorUserId: monthly.staffId, workspaceId: monthly.id, documentId: staffDraft.id }), WorkspaceAuthorizationError);
     const outsider = await workspace("outsider");
     await assert.rejects(issueDocument({ actorUserId: outsider.ownerId, workspaceId: outsider.id, documentId: staffDraft.id }));
@@ -138,6 +146,7 @@ test("ISSUE Phase 1 is atomic, immutable, authorized, and exactly once under con
     assert.equal(new Set(sameRace.map((result) => result.documentNumber)).size, 1);
     assert.equal(new Set(sameRace.map((result) => result.snapshotId)).size, 1);
     assert.equal(new Set(sameRace.map((result) => result.capacityConsumptionId)).size, 1);
+    assert.equal(new Set(sameRace.map((result) => result.verificationCode)).size, 1);
     assert.equal(await db.auditEvent.count({ where: { action: "DOCUMENT_ISSUED", resourceId: sameDraft.id } }), 1);
 
     const numberedDrafts: Awaited<ReturnType<typeof createDraft>>[] = [];
@@ -146,6 +155,17 @@ test("ISSUE Phase 1 is atomic, immutable, authorized, and exactly once under con
     const values = numbered.map(({ documentNumber }) => Number(documentNumber.split("-")[1])).sort((a, b) => a - b);
     assert.equal(new Set(values).size, 4);
     assert.deepEqual(values, Array.from({ length: 4 }, (_, index) => values[0]! + index));
+    assert.equal(new Set(numbered.map(({ verificationCode }) => verificationCode)).size, numbered.length);
+
+    const collisionDraft = await createDraft({ actorUserId: monthly.ownerId, workspaceId: monthly.id, data: draftData({ type: "RECEIPT", notes: "verification collision retry" }) });
+    let generationAttempts = 0;
+    const collisionResult = await issueDocument(
+      { actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: collisionDraft.id },
+      db,
+      { generateCode: () => generationAttempts++ === 0 ? first.verificationCode! : generateVerificationCode() },
+    );
+    assert.equal(generationAttempts, 2);
+    assert.notEqual(collisionResult.verificationCode, first.verificationCode);
 
     const exact = await workspace("exact");
     await db.workspaceDocumentAllowancePeriod.updateMany({ where: { workspaceId: exact.id }, data: { used: free.documentLimit! - 1 } });

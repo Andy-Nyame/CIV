@@ -9,6 +9,8 @@ import {
   rgb,
 } from "pdf-lib";
 
+import { renderVerificationBarcodePng } from "@/features/documents/verification/barcode";
+
 import type { IssuedDocumentPdfModel } from "./model";
 
 const PAGE_WIDTH = PageSizes.A4[0];
@@ -114,11 +116,15 @@ export async function renderIssuedDocumentPdf(model: IssuedDocumentPdfModel) {
   const document = await PDFDocument.create();
   const regular = await document.embedFont("Helvetica");
   const bold = await document.embedFont("Helvetica-Bold");
+  const verificationBarcode = model.verificationCode
+    ? await renderVerificationBarcodePng(model.verificationCode)
+    : null;
   document.setTitle(`${model.title} ${model.number}`);
   document.setAuthor("CIV");
   document.setCreator("CIV server-side PDF service");
   document.setProducer("CIV");
   document.setSubject(model.isTestDocument ? TEST_WARNING : "Issued CIV document");
+  document.setKeywords(["CIV", "document verification", ...(model.verificationCode ? [model.verificationCode] : [])]);
   document.setCreationDate(new Date(model.issuedAt));
   document.setModificationDate(new Date(model.issuedAt));
 
@@ -300,12 +306,24 @@ export async function renderIssuedDocumentPdf(model: IssuedDocumentPdfModel) {
   y = Math.min(issuerBottom, customerBottom) - 10;
 
   if (model.verificationCode) {
-    const verificationLines = wrapText(model.verificationCode, bold, 9, PAGE_WIDTH - MARGIN * 2 - 100);
-    ensureSpace(Math.max(30, verificationLines.length * 11 + 18));
+    const blockHeight = verificationBarcode ? 112 : 54;
+    ensureSpace(blockHeight);
     drawRule();
-    drawLabel("Verification code", MARGIN, y + 2);
-    verificationLines.forEach((line, index) => page.drawText(line, { x: MARGIN + 100, y: y + 1 - index * 11, size: 9, font: bold, color: colors.dark }));
-    y -= Math.max(20, verificationLines.length * 11 + 8);
+    y -= 14;
+    drawLabel("CIV verification", MARGIN, y);
+    y -= 17;
+    if (verificationBarcode) {
+      const barcodeImage = await document.embedPng(verificationBarcode.bytes);
+      const scale = Math.min(300 / barcodeImage.width, 50 / barcodeImage.height, 1);
+      const width = barcodeImage.width * scale;
+      const height = barcodeImage.height * scale;
+      page.drawImage(barcodeImage, { x: MARGIN, y: y - height, width, height });
+      y -= height + 9;
+    }
+    page.drawText(`Verification Code: ${pdfSafeText(model.verificationCode, bold)}`, { x: MARGIN, y, size: 9, font: bold, color: colors.dark });
+    y -= 13;
+    page.drawText("Verify this document on CIV using the code above.", { x: MARGIN, y, size: 8, font: regular, color: colors.muted });
+    y -= 17;
   }
 
   ensureSpace(50);

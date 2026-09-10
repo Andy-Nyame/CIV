@@ -631,7 +631,8 @@ model Document {
   isTestDocument  Boolean           @default(false)
   draftReference  String            @unique @db.VarChar(40)
   documentNumber  String?           @db.VarChar(100)
-  civDocumentId   String?           @unique @db.VarChar(100)
+  /// Canonical CIV-native public verification code. Historical issued records may remain null.
+  verificationCode String?         @unique @map("civDocumentId") @db.VarChar(100)
   currency        String            @default("GHS") @db.VarChar(3)
   issueDate       DateTime?         @db.Date
   draftDate       DateTime          @default(now()) @db.Date
