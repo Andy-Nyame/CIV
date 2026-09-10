@@ -4,12 +4,13 @@ import test from "node:test";
 
 import { addUtcMonth } from "@/features/commercial/periods";
 import { createCustomer, updateCustomer } from "@/features/customers/service";
+import { BusinessDataValidationError } from "@/features/business-data/errors";
 import { db } from "@/lib/db";
 import { synchronizeGhanaVat2026ReferenceData } from "../../../prisma/reference-data/ghana-vat-2026";
 
 import { issueDocument } from "./issuance";
 import { listWorkspaceCustomerSuggestions } from "./queries";
-import { createDraft } from "./service";
+import { createDraft, updateDraft } from "./service";
 import { issuedDocumentSnapshotSchema } from "./snapshots";
 
 type DocumentType = "INVOICE" | "RECEIPT" | "VAT_INVOICE";
@@ -64,48 +65,74 @@ test("customer details are document-first, reusable, isolated, and snapshotted",
     const primary = await createWorkspace("Customer flow primary");
     const isolated = await createWorkspace("Customer flow isolated");
 
-    const receiptDetails = {
-      customerName: "Akosua Mensah",
-      customerEmail: `akosua-${suffix}@example.invalid`,
-      customerPhone: "+233200000001",
-      customerAddress: "First address, Accra",
-      customerBusinessTin: "C-TIN-100",
-    };
-    assert.equal(await db.customer.count({ where: { workspaceId: primary.id, email: receiptDetails.customerEmail } }), 0);
-    const receipt = await createDraft({ actorUserId: primary.ownerId, workspaceId: primary.id, data: draftData("RECEIPT", receiptDetails) });
-    assert.ok(receipt.customerId, "Valid document customer details should be reusable after the draft is saved.");
-    assert.equal(receipt.customerName, receiptDetails.customerName);
+    for (const type of ["RECEIPT", "INVOICE", "VAT_INVOICE"] as const) {
+      await assert.rejects(
+        createDraft({ actorUserId: primary.ownerId, workspaceId: primary.id, data: draftData(type) }),
+        BusinessDataValidationError,
+      );
+    }
+
+    const receiptName = "Akosua Mensah";
+    assert.equal(await db.customer.count({ where: { workspaceId: primary.id, name: receiptName } }), 0);
+    const receipt = await createDraft({ actorUserId: primary.ownerId, workspaceId: primary.id, data: draftData("RECEIPT", { customerName: receiptName }) });
+    assert.ok(receipt.customerId, "A valid typed customer name should be reusable after the draft is saved.");
+    assert.equal(receipt.customerName, receiptName);
     const reusableCustomer = await db.customer.findUniqueOrThrow({ where: { id: receipt.customerId } });
     assert.equal(reusableCustomer.workspaceId, primary.id);
-    assert.equal(reusableCustomer.address, receiptDetails.customerAddress);
+    assert.equal(reusableCustomer.email, null);
+    assert.equal(reusableCustomer.phone, null);
+    assert.equal(reusableCustomer.address, null);
+    assert.equal(reusableCustomer.businessTin, null);
 
-    const invoiceDetails = { ...receiptDetails, customerAddress: "Document-specific delivery address" };
-    const invoice = await createDraft({ actorUserId: primary.ownerId, workspaceId: primary.id, data: draftData("INVOICE", invoiceDetails) });
-    assert.equal(invoice.customerId, receipt.customerId, "A strong exact identity match should reuse the saved customer.");
-    assert.equal(invoice.customerAddress, invoiceDetails.customerAddress);
-    assert.equal(await db.customer.count({ where: { workspaceId: primary.id, email: receiptDetails.customerEmail } }), 1);
-    assert.equal((await db.customer.findUniqueOrThrow({ where: { id: receipt.customerId! } })).address, receiptDetails.customerAddress, "Document entry must not overwrite the saved customer.");
+    const invoice = await createDraft({ actorUserId: primary.ownerId, workspaceId: primary.id, data: draftData("INVOICE", { customerName: receiptName }) });
+    assert.equal(invoice.customerId, receipt.customerId, "An exact normalized name should reuse the saved customer.");
+    assert.equal(await db.customer.count({ where: { workspaceId: primary.id, name: { equals: receiptName, mode: "insensitive" } } }), 1);
 
-    const vatDetails = {
-      customerName: "Kofi Owusu Ltd",
-      customerEmail: `kofi-${suffix}@example.invalid`,
-      customerPhone: "+233200000002",
-      customerAddress: "Tema, Ghana",
-      customerBusinessTin: "VAT-TIN-200",
-    };
-    const vatInvoice = await createDraft({ actorUserId: primary.ownerId, workspaceId: primary.id, data: draftData("VAT_INVOICE", vatDetails) });
-    assert.equal(vatInvoice.customerName, vatDetails.customerName);
+    const vatCustomerName = "Kwame Mensah";
+    const vatInvoice = await createDraft({ actorUserId: primary.ownerId, workspaceId: primary.id, data: draftData("VAT_INVOICE", { customerName: vatCustomerName }) });
+    assert.equal(vatInvoice.customerName, vatCustomerName);
+    assert.equal(vatInvoice.customerEmail, null);
+    assert.equal(vatInvoice.customerPhone, null);
+    assert.equal(vatInvoice.customerAddress, null);
+    assert.equal(vatInvoice.customerBusinessTin, null);
 
     const saved = await createCustomer({
       actorUserId: primary.ownerId,
       workspaceId: primary.id,
       data: { name: "Saved Selection Ltd", email: `saved-${suffix}@example.invalid`, phone: "+233200000003", address: "Kumasi", businessTin: "TIN-SAVED", notes: "" },
     });
-    const selected = await createDraft({ actorUserId: primary.ownerId, workspaceId: primary.id, data: draftData("INVOICE", { customerId: saved.id }) });
+    const selected = await createDraft({ actorUserId: primary.ownerId, workspaceId: primary.id, data: draftData("INVOICE", { customerId: saved.id, customerName: saved.name }) });
     assert.equal(selected.customerId, saved.id);
     assert.equal(selected.customerName, saved.name);
     assert.equal(selected.customerEmail, saved.email);
     assert.equal(selected.customerBusinessTin, saved.businessTin);
+    const savedAfterSelection = await db.customer.findUniqueOrThrow({ where: { id: saved.id } });
+    assert.equal(savedAfterSelection.email, saved.email);
+    assert.equal(savedAfterSelection.phone, saved.phone);
+    assert.equal(savedAfterSelection.address, saved.address);
+    assert.equal(savedAfterSelection.businessTin, saved.businessTin);
+
+    const legacyDraft = await createDraft({
+      actorUserId: primary.ownerId,
+      workspaceId: primary.id,
+      data: draftData("INVOICE", {
+        customerName: "Detailed Legacy Draft",
+        customerEmail: `legacy-${suffix}@example.invalid`,
+        customerPhone: "+233200000009",
+        customerAddress: "Legacy address",
+        customerBusinessTin: "LEGACY-TIN",
+      }),
+    });
+    const compatibleDraft = await updateDraft({
+      actorUserId: primary.ownerId,
+      workspaceId: primary.id,
+      documentId: legacyDraft.id,
+      data: draftData("INVOICE", { customerId: legacyDraft.customerId, customerName: legacyDraft.customerName }),
+    });
+    assert.equal(compatibleDraft.customerEmail, legacyDraft.customerEmail);
+    assert.equal(compatibleDraft.customerPhone, legacyDraft.customerPhone);
+    assert.equal(compatibleDraft.customerAddress, legacyDraft.customerAddress);
+    assert.equal(compatibleDraft.customerBusinessTin, legacyDraft.customerBusinessTin);
 
     const isolatedCustomer = await createCustomer({
       actorUserId: isolated.ownerId,
@@ -116,20 +143,14 @@ test("customer details are document-first, reusable, isolated, and snapshotted",
     assert.ok(suggestions.some(({ id }) => id === saved.id));
     assert.ok(!suggestions.some(({ id }) => id === isolatedCustomer.id), "Customer suggestions must not cross workspace boundaries.");
 
-    const failedAutoSaveDetails = {
-      customerName: "No Saved Row Customer",
-      customerEmail: `unsaved-${suffix}@example.invalid`,
-      customerPhone: "+233200000004",
-      customerAddress: "Exact document address",
-      customerBusinessTin: "TIN-UNSAVED",
-    };
+    const failedAutoSaveName = "No Saved Row Customer";
     const unsaved = await createDraft(
-      { actorUserId: primary.ownerId, workspaceId: primary.id, data: draftData("INVOICE", failedAutoSaveDetails) },
+      { actorUserId: primary.ownerId, workspaceId: primary.id, data: draftData("INVOICE", { customerName: failedAutoSaveName }) },
       { autoSaveCustomer: async () => { throw new Error("simulated background customer save failure"); } },
     );
     assert.equal(unsaved.customerId, null);
-    assert.equal(unsaved.customerName, failedAutoSaveDetails.customerName);
-    assert.equal(await db.customer.count({ where: { workspaceId: primary.id, email: failedAutoSaveDetails.customerEmail } }), 0);
+    assert.equal(unsaved.customerName, failedAutoSaveName);
+    assert.equal(await db.customer.count({ where: { workspaceId: primary.id, name: failedAutoSaveName } }), 0);
 
     const receiptIssue = await issueDocument({ actorUserId: primary.ownerId, workspaceId: primary.id, documentId: receipt.id });
     await issueDocument({ actorUserId: primary.ownerId, workspaceId: primary.id, documentId: invoice.id });
@@ -137,11 +158,11 @@ test("customer details are document-first, reusable, isolated, and snapshotted",
     await issueDocument({ actorUserId: primary.ownerId, workspaceId: primary.id, documentId: unsaved.id });
 
     const receiptSnapshot = issuedDocumentSnapshotSchema.parse((await db.documentSnapshot.findUniqueOrThrow({ where: { documentId: receipt.id } })).payload);
-    assert.equal(receiptSnapshot.customer?.name, receiptDetails.customerName);
-    assert.equal(receiptSnapshot.customer?.email, receiptDetails.customerEmail);
-    assert.equal(receiptSnapshot.customer?.phone, receiptDetails.customerPhone);
-    assert.equal(receiptSnapshot.customer?.address, receiptDetails.customerAddress);
-    assert.equal(receiptSnapshot.customer?.businessTin, receiptDetails.customerBusinessTin);
+    assert.equal(receiptSnapshot.customer?.name, receiptName);
+    assert.equal(receiptSnapshot.customer?.email, null);
+    assert.equal(receiptSnapshot.customer?.phone, null);
+    assert.equal(receiptSnapshot.customer?.address, null);
+    assert.equal(receiptSnapshot.customer?.businessTin, null);
     const originalPayload = structuredClone(receiptSnapshot);
     await updateCustomer({
       actorUserId: primary.ownerId,
@@ -154,10 +175,10 @@ test("customer details are document-first, reusable, isolated, and snapshotted",
 
     const unsavedSnapshot = issuedDocumentSnapshotSchema.parse((await db.documentSnapshot.findUniqueOrThrow({ where: { documentId: unsaved.id } })).payload);
     assert.equal(unsavedSnapshot.customer?.id, null);
-    assert.equal(unsavedSnapshot.customer?.name, failedAutoSaveDetails.customerName);
-    assert.equal(unsavedSnapshot.customer?.address, failedAutoSaveDetails.customerAddress);
+    assert.equal(unsavedSnapshot.customer?.name, failedAutoSaveName);
     const vatSnapshot = issuedDocumentSnapshotSchema.parse((await db.documentSnapshot.findUniqueOrThrow({ where: { documentId: vatInvoice.id } })).payload);
-    assert.equal(vatSnapshot.customer?.name, vatDetails.customerName);
+    assert.equal(vatSnapshot.customer?.name, vatCustomerName);
+    assert.equal(vatSnapshot.customer?.businessTin, null);
     assert.equal(vatSnapshot.totals.grandTotal, "120.00");
   } finally {
     if (workspaceIds.length) {

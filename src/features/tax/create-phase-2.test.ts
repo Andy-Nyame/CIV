@@ -66,6 +66,7 @@ test("approved Ghana 2026 VAT structure and GHS rounding are exact", () => {
   const vatWithCustomRate = draftInputSchema.safeParse({
     type: "VAT_INVOICE",
     customerId: null,
+    customerName: "VAT Test Customer",
     currency: "GHS",
     draftDate: "2026-08-21",
     dueDate: null,
@@ -110,25 +111,25 @@ test("effective trusted tax, custom snapshots, readiness, snapshots, numbering, 
     const profile = await db.taxProfile.findUniqueOrThrow({ where: { jurisdiction_code: { jurisdiction: "GH", code: "STANDARD_VAT" } } });
     await assert.rejects(db.taxVersion.create({ data: { taxProfileId: profile.id, version: `OVERLAP-${suffix}`, effectiveFrom: new Date("2026-06-01"), effectiveTo: new Date("2026-12-31"), isActive: true } }));
 
-    const ordinary = await createDraft({ actorUserId: owner.id, workspaceId: workspace.id, data: { type: "INVOICE", customerId: customer.id, currency: "GHS", draftDate: "2026-08-21", dueDate: "2026-09-01", notes: "Custom rate", lines: [{ catalogItemId: null, customRateId: rate.id, description: "Service", quantity: "1", unitPrice: "100.00" }] } });
+    const ordinary = await createDraft({ actorUserId: owner.id, workspaceId: workspace.id, data: { type: "INVOICE", customerId: customer.id, customerName: customer.name, currency: "GHS", draftDate: "2026-08-21", dueDate: "2026-09-01", notes: "Custom rate", lines: [{ catalogItemId: null, customRateId: rate.id, description: "Service", quantity: "1", unitPrice: "100.00" }] } });
     assert.equal(ordinary.rateTotal.toFixed(2), "5.00");
     assert.equal(ordinary.grandTotal.toFixed(2), "105.00");
     assert.equal(ordinary.taxVersionId, null);
     await updateCustomRate({ actorUserId: owner.id, workspaceId: workspace.id, rateId: rate.id, data: { name: rate.name, type: rate.type, value: "7", description: rate.description ?? "" } });
-    const preserved = await updateDraft({ actorUserId: owner.id, workspaceId: workspace.id, documentId: ordinary.id, data: { type: "INVOICE", customerId: customer.id, currency: "GHS", draftDate: "2026-08-21", dueDate: "2026-09-01", notes: "Preserve", lines: [{ id: ordinary.lines[0]!.id, catalogItemId: null, customRateId: rate.id, description: "Service", quantity: "1", unitPrice: "100.00" }] } });
+    const preserved = await updateDraft({ actorUserId: owner.id, workspaceId: workspace.id, documentId: ordinary.id, data: { type: "INVOICE", customerId: customer.id, customerName: customer.name, currency: "GHS", draftDate: "2026-08-21", dueDate: "2026-09-01", notes: "Preserve", lines: [{ id: ordinary.lines[0]!.id, catalogItemId: null, customRateId: rate.id, description: "Service", quantity: "1", unitPrice: "100.00" }] } });
     assert.equal(preserved.rateTotal.toFixed(2), "5.00");
-    const noRate = await updateDraft({ actorUserId: owner.id, workspaceId: workspace.id, documentId: ordinary.id, data: { type: "INVOICE", customerId: customer.id, currency: "GHS", draftDate: "2026-08-21", dueDate: "2026-09-01", notes: "Remove", lines: [{ id: preserved.lines[0]!.id, catalogItemId: null, customRateId: null, description: "Service", quantity: "1", unitPrice: "100.00" }] } });
-    const reselected = await updateDraft({ actorUserId: owner.id, workspaceId: workspace.id, documentId: ordinary.id, data: { type: "INVOICE", customerId: customer.id, currency: "GHS", draftDate: "2026-08-21", dueDate: "2026-09-01", notes: "Reselect", lines: [{ id: noRate.lines[0]!.id, catalogItemId: null, customRateId: rate.id, description: "Service", quantity: "1", unitPrice: "100.00" }] } });
+    const noRate = await updateDraft({ actorUserId: owner.id, workspaceId: workspace.id, documentId: ordinary.id, data: { type: "INVOICE", customerId: customer.id, customerName: customer.name, currency: "GHS", draftDate: "2026-08-21", dueDate: "2026-09-01", notes: "Remove", lines: [{ id: preserved.lines[0]!.id, catalogItemId: null, customRateId: null, description: "Service", quantity: "1", unitPrice: "100.00" }] } });
+    const reselected = await updateDraft({ actorUserId: owner.id, workspaceId: workspace.id, documentId: ordinary.id, data: { type: "INVOICE", customerId: customer.id, customerName: customer.name, currency: "GHS", draftDate: "2026-08-21", dueDate: "2026-09-01", notes: "Reselect", lines: [{ id: noRate.lines[0]!.id, catalogItemId: null, customRateId: rate.id, description: "Service", quantity: "1", unitPrice: "100.00" }] } });
     assert.equal(reselected.rateTotal.toFixed(2), "7.00");
-    await assert.rejects(createDraft({ actorUserId: owner.id, workspaceId: workspace.id, data: { type: "INVOICE", customerId: null, currency: "GHS", draftDate: "2026-08-21", dueDate: null, notes: "", lines: [{ catalogItemId: null, customRateId: otherRate.id, description: "Forged", quantity: "1", unitPrice: "100" }] } }), BusinessDataValidationError);
+    await assert.rejects(createDraft({ actorUserId: owner.id, workspaceId: workspace.id, data: { type: "INVOICE", customerId: null, customerName: "Forged Customer", currency: "GHS", draftDate: "2026-08-21", dueDate: null, notes: "", lines: [{ catalogItemId: null, customRateId: otherRate.id, description: "Forged", quantity: "1", unitPrice: "100" }] } }), BusinessDataValidationError);
 
-    const vat = await createDraft({ actorUserId: owner.id, workspaceId: workspace.id, data: { type: "VAT_INVOICE", customerId: customer.id, currency: "GHS", draftDate: "2026-08-21", dueDate: "2026-09-01", notes: "Trusted tax", forgedTaxRate: "1", lines: [{ catalogItemId: null, customRateId: null, description: "Taxable service", quantity: "1", unitPrice: "100.00" }] } });
+    const vat = await createDraft({ actorUserId: owner.id, workspaceId: workspace.id, data: { type: "VAT_INVOICE", customerId: customer.id, customerName: customer.name, currency: "GHS", draftDate: "2026-08-21", dueDate: "2026-09-01", notes: "Trusted tax", forgedTaxRate: "1", lines: [{ catalogItemId: null, customRateId: null, description: "Taxable service", quantity: "1", unitPrice: "100.00" }] } });
     assert.equal(vat.taxVersionId, taxVersion.id);
     assert.equal(vat.taxableValue.toFixed(2), "100.00");
     assert.equal(vat.taxTotal.toFixed(2), "20.00");
     assert.equal(vat.grandTotal.toFixed(2), "120.00");
     assert.equal(vat.documentNumber, null);
-    await assert.rejects(createDraft({ actorUserId: owner.id, workspaceId: workspace.id, data: { type: "VAT_INVOICE", customerId: customer.id, currency: "USD", draftDate: "2026-08-21", dueDate: null, notes: "", lines: [{ catalogItemId: null, customRateId: null, description: "Invalid currency", quantity: "1", unitPrice: "100" }] } }), BusinessDataValidationError);
+    await assert.rejects(createDraft({ actorUserId: owner.id, workspaceId: workspace.id, data: { type: "VAT_INVOICE", customerId: customer.id, customerName: customer.name, currency: "USD", draftDate: "2026-08-21", dueDate: null, notes: "", lines: [{ catalogItemId: null, customRateId: null, description: "Invalid currency", quantity: "1", unitPrice: "100" }] } }), BusinessDataValidationError);
 
     await db.workspace.update({ where: { id: workspace.id }, data: { businessTin: null } });
     const missingTin = await validateIssueReadiness({ actorUserId: owner.id, workspaceId: workspace.id, documentId: vat.id });

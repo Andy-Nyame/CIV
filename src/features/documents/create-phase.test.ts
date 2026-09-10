@@ -23,6 +23,7 @@ type DraftLineInput = {
 type DraftData = {
   type: "INVOICE" | "RECEIPT" | "VAT_INVOICE";
   customerId: string | null;
+  customerName: string;
   currency: string;
   draftDate: string;
   dueDate: string | null;
@@ -34,6 +35,7 @@ function draftData(overrides: Partial<DraftData> = {}): DraftData {
   return {
     type: "INVOICE",
     customerId: null,
+    customerName: "CREATE Test Customer",
     currency: "GHS",
     draftDate: "2026-08-21",
     dueDate: "2026-09-21",
@@ -166,6 +168,7 @@ test("customers, catalogue entries, and drafts are isolated, authorized, snapsho
       data: draftData({
         type: "INVOICE",
         customerId: customer.id,
+        customerName: updatedCustomer.name,
         lines: [
           { catalogItemId: null, customRateId: null, description: "Exact penny", quantity: "1", unitPrice: "0.01" },
           { catalogItemId: null, customRateId: null, description: "Ten", quantity: "1", unitPrice: "10.00" },
@@ -198,7 +201,7 @@ test("customers, catalogue entries, and drafts are isolated, authorized, snapsho
     assert.equal(snapshottedLine.unitPrice.toFixed(4), "99.9900");
 
     await assert.rejects(
-      createDraft({ actorUserId: owner.id, workspaceId: workspace.id, data: draftData({ customerId: otherCustomer.id }) }),
+      createDraft({ actorUserId: owner.id, workspaceId: workspace.id, data: draftData({ customerId: otherCustomer.id, customerName: otherCustomer.name }) }),
       BusinessDataValidationError,
     );
     await assert.rejects(
@@ -259,6 +262,7 @@ test("customers, catalogue entries, and drafts are isolated, authorized, snapsho
       data: draftData({
         type: "INVOICE",
         customerId: customer.id,
+        customerName: updatedCustomer.name,
         lines: [
           { id: draft.lines[2]!.id, catalogItemId: item.id, customRateId: null, description: "Logo Design", quantity: "1", unitPrice: "99.99" },
           { id: draft.lines[3]!.id, catalogItemId: null, customRateId: rate.id, description: "Large service", quantity: "1", unitPrice: "1000.50" },
@@ -269,7 +273,7 @@ test("customers, catalogue entries, and drafts are isolated, authorized, snapsho
     assert.equal(preservedDraft.lines[0]?.unitPrice.toFixed(4), "99.9900");
 
     await assert.rejects(
-      createDraft({ actorUserId: owner.id, workspaceId: workspace.id, data: draftData({ customerId: customer.id }) }),
+      createDraft({ actorUserId: owner.id, workspaceId: workspace.id, data: draftData({ customerId: customer.id, customerName: customer.name }) }),
       BusinessDataValidationError,
     );
     await assert.rejects(

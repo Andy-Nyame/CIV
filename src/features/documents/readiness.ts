@@ -41,6 +41,7 @@ export async function validateIssueReadinessInTransaction(
     const errors: IssueReadinessError[] = [];
     if (!["INVOICE", "RECEIPT", "VAT_INVOICE"].includes(document.type)) errors.push({ code: "UNSUPPORTED_TYPE", message: "This document type cannot be issued yet.", field: "type" });
     if (!document.lines.length) errors.push({ code: "NO_LINES", message: "Add at least one valid line item.", field: "lines" });
+    if (!(document.customerName?.trim() || document.customer?.name)) errors.push({ code: "CUSTOMER_REQUIRED", message: "Enter a customer name before issuing this document.", field: "customerName" });
     if (document.grandTotal.lte(0) || document.subtotal.lt(0)) errors.push({ code: "INVALID_TOTAL", message: "The draft must have a positive, valid total.", field: "grandTotal" });
     if (document.dueDate && document.dueDate < document.draftDate) errors.push({ code: "INVALID_DATE", message: "The due date cannot be before the document date.", field: "dueDate" });
     if (document.lines.some((line) => line.customRate && line.customRate.workspaceId !== input.workspaceId)) errors.push({ code: "CUSTOM_RATE_UNAVAILABLE", message: "A custom rate does not belong to this workspace.", field: "lines" });
@@ -54,7 +55,6 @@ export async function validateIssueReadinessInTransaction(
 
     if (document.type === "VAT_INVOICE") {
       if (document.currency !== "GHS") errors.push({ code: "CURRENCY_MISMATCH", message: "Ghana VAT invoices must use GHS.", field: "currency" });
-      if (!(document.customerName?.trim() || document.customer?.name)) errors.push({ code: "CUSTOMER_REQUIRED", message: "Enter a customer name before issuing a VAT invoice.", field: "customerName" });
       if (!document.workspace.businessTin?.trim()) errors.push({ code: "ISSUER_TIN_REQUIRED", message: "Add the workspace TIN before issuing a VAT invoice.", field: "businessTin" });
       try {
         const version = await resolveGhanaVatVersion(document.draftDate, transaction);

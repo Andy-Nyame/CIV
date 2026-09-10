@@ -16,13 +16,18 @@ import { documentIdSchema, draftInputSchema } from "./validation";
 
 function draftReference() { return `DRAFT-${randomBytes(6).toString("hex").toUpperCase()}`; }
 
-type DraftCustomer = {
+type DraftCustomerInput = {
   customerId: string | null;
-  customerName: string | null;
-  customerEmail: string | null;
-  customerPhone: string | null;
-  customerAddress: string | null;
-  customerBusinessTin: string | null;
+  customerName: string;
+  customerEmail?: string | null;
+  customerPhone?: string | null;
+  customerAddress?: string | null;
+  customerBusinessTin?: string | null;
+};
+
+type StoredDraftCustomer = {
+  customerId: string | null; customerName: string | null; customerEmail: string | null;
+  customerPhone: string | null; customerAddress: string | null; customerBusinessTin: string | null;
 };
 
 type CustomerAutoSave = (input: { actorUserId: string; workspaceId: string; documentId: string }) => Promise<string | null>;
@@ -31,23 +36,31 @@ type DraftServiceOptions = { autoSaveCustomer?: CustomerAutoSave };
 async function resolveDraftCustomer(
   tx: Prisma.TransactionClient,
   workspaceId: string,
-  customer: DraftCustomer,
-  retainedCustomerId?: string | null,
-) {
-  if (!customer.customerId) return customer;
+  customer: DraftCustomerInput,
+  existing?: StoredDraftCustomer,
+): Promise<StoredDraftCustomer> {
+  const sameName = existing?.customerName?.trim().toLowerCase() === customer.customerName.toLowerCase();
+  if (!customer.customerId) return {
+    customerId: null,
+    customerName: customer.customerName,
+    customerEmail: customer.customerEmail !== undefined ? customer.customerEmail : sameName ? existing.customerEmail : null,
+    customerPhone: customer.customerPhone !== undefined ? customer.customerPhone : sameName ? existing.customerPhone : null,
+    customerAddress: customer.customerAddress !== undefined ? customer.customerAddress : sameName ? existing.customerAddress : null,
+    customerBusinessTin: customer.customerBusinessTin !== undefined ? customer.customerBusinessTin : sameName ? existing.customerBusinessTin : null,
+  };
   const saved = await tx.customer.findFirst({
-    where: { id: customer.customerId, workspaceId, ...(customer.customerId === retainedCustomerId ? {} : { archivedAt: null }) },
+    where: { id: customer.customerId, workspaceId, ...(customer.customerId === existing?.customerId ? {} : { archivedAt: null }) },
     select: { id: true, name: true, email: true, phone: true, address: true, businessTin: true },
   });
   if (!saved) throw new BusinessDataValidationError({ customerId: ["Customer is unavailable."] });
-  if (customer.customerName) return customer;
+  const preserveExisting = customer.customerId === existing?.customerId && sameName;
   return {
     customerId: saved.id,
-    customerName: saved.name,
-    customerEmail: saved.email,
-    customerPhone: saved.phone,
-    customerAddress: saved.address,
-    customerBusinessTin: saved.businessTin,
+    customerName: customer.customerName,
+    customerEmail: customer.customerEmail !== undefined ? customer.customerEmail : preserveExisting ? existing.customerEmail : saved.email,
+    customerPhone: customer.customerPhone !== undefined ? customer.customerPhone : preserveExisting ? existing.customerPhone : saved.phone,
+    customerAddress: customer.customerAddress !== undefined ? customer.customerAddress : preserveExisting ? existing.customerAddress : saved.address,
+    customerBusinessTin: customer.customerBusinessTin !== undefined ? customer.customerBusinessTin : preserveExisting ? existing.customerBusinessTin : saved.businessTin,
   };
 }
 
@@ -64,20 +77,15 @@ export async function autoSaveDocumentCustomer(input: {
     });
     if (!document?.customerName || document.customerId) return document?.customerId ?? null;
 
-    const normalizedIdentity = [document.customerName.toLowerCase(), document.customerEmail, document.customerPhone, document.customerBusinessTin].join("\u0000");
+    const normalizedIdentity = document.customerName.trim().toLowerCase();
     const identityLock = createHash("sha256").update(normalizedIdentity).digest("hex");
     await lockBusinessResource(tx, `document-customer:${input.workspaceId}:${identityLock}`);
 
-    const identityMatches: Prisma.CustomerWhereInput[] = [];
-    if (document.customerEmail) identityMatches.push({ email: { equals: document.customerEmail, mode: "insensitive" } });
-    if (document.customerPhone) identityMatches.push({ phone: document.customerPhone });
-    if (document.customerBusinessTin) identityMatches.push({ businessTin: { equals: document.customerBusinessTin, mode: "insensitive" } });
     const existing = await tx.customer.findFirst({
       where: {
         workspaceId: input.workspaceId,
         archivedAt: null,
         name: { equals: document.customerName, mode: "insensitive" },
-        ...(identityMatches.length ? { OR: identityMatches } : { email: null, phone: null, businessTin: null }),
       },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: { id: true },
@@ -194,7 +202,7 @@ export async function updateDraft(input: { actorUserId: string; workspaceId: str
   if (!id.success || !parsed.success) throw new BusinessDataValidationError(parsed.success ? {} : parsed.error.flatten().fieldErrors);
   const document = await db.$transaction(async (tx) => {
     await lockBusinessResource(tx, `document:${id.data}`); const { document: before } = await requireDocumentAccessInTransaction(tx, input.actorUserId, input.workspaceId, id.data);
-    const customer = await resolveDraftCustomer(tx, input.workspaceId, parsed.data, before.customerId);
+    const customer = await resolveDraftCustomer(tx, input.workspaceId, parsed.data, before);
     const existingLines = await tx.documentLine.findMany({ where: { documentId: id.data }, select: { id: true, catalogItemId: true, customRateId: true, rateNameSnapshot: true, rateTypeSnapshot: true, rateValueSnapshot: true } });
     const { prepared, totals } = await prepareLines(tx, input.workspaceId, parsed.data.currency, parsed.data.lines, {
       catalogueItemIds: new Set(existingLines.flatMap(({ catalogItemId }) => catalogItemId ? [catalogItemId] : [])),

@@ -49,7 +49,7 @@ export async function listWorkspaceCustomerSuggestions(workspaceId: string, curr
     },
     orderBy: [{ name: "asc" }, { id: "asc" }],
     take: 200,
-    select: { id: true, name: true, email: true, phone: true, address: true, businessTin: true },
+    select: { id: true, name: true },
   });
 }
 

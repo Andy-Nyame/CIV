@@ -76,6 +76,7 @@ test("ISSUE Phase 1 is atomic, immutable, authorized, and exactly once under con
     return {
       type: "INVOICE",
       customerId: null,
+      customerName: "ISSUE Test Customer",
       currency: "GHS",
       draftDate: "2026-08-21",
       dueDate: "2026-09-21",
@@ -90,7 +91,7 @@ test("ISSUE Phase 1 is atomic, immutable, authorized, and exactly once under con
     const customer = await createCustomer({ actorUserId: monthly.ownerId, workspaceId: monthly.id, data: { name: "Ama Customer", email: "ama@example.invalid", phone: "+233200000000", address: "Osu, Accra", businessTin: "C-TIN-1", notes: "" } });
     const item = await createCatalogueItem({ actorUserId: monthly.ownerId, workspaceId: monthly.id, data: { name: "Consulting", description: "Live catalogue description", type: "SERVICE", unitPrice: "100.00", currency: "GHS", unitLabel: "service", sku: `ISSUE-${suffix.slice(0, 8)}` } });
     const rate = await createCustomRate({ actorUserId: monthly.ownerId, workspaceId: monthly.id, data: { name: "Service fee", type: "PERCENTAGE", value: "5", description: "" } });
-    const invoice = await createDraft({ actorUserId: monthly.ownerId, workspaceId: monthly.id, data: draftData({ customerId: customer.id, lines: [{ catalogItemId: item.id, customRateId: rate.id, description: "Consulting", quantity: "1", unitPrice: "100.00" }] }) });
+    const invoice = await createDraft({ actorUserId: monthly.ownerId, workspaceId: monthly.id, data: draftData({ customerId: customer.id, customerName: customer.name, lines: [{ catalogItemId: item.id, customRateId: rate.id, description: "Consulting", quantity: "1", unitPrice: "100.00" }] }) });
 
     const first = await issueDocument({ actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: invoice.id });
     assert.match(first.documentNumber, /^INV-\d{6}$/);
@@ -154,7 +155,7 @@ test("ISSUE Phase 1 is atomic, immutable, authorized, and exactly once under con
     const failed = await db.document.findFirstOrThrow({ where: { id: { in: exactDrafts.map(({ id }) => id) }, status: "DRAFT" } });
     assert.equal(failed.documentNumber, null);
 
-    const vat = await createDraft({ actorUserId: monthly.ownerId, workspaceId: monthly.id, data: draftData({ type: "VAT_INVOICE", customerId: customer.id, lines: [{ catalogItemId: null, customRateId: null, description: "VAT base", quantity: "1", unitPrice: "100.00" }] }) });
+    const vat = await createDraft({ actorUserId: monthly.ownerId, workspaceId: monthly.id, data: draftData({ type: "VAT_INVOICE", customerId: customer.id, customerName: customer.name, lines: [{ catalogItemId: null, customRateId: null, description: "VAT base", quantity: "1", unitPrice: "100.00" }] }) });
     const vatIssued = await issueDocument({ actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: vat.id });
     assert.match(vatIssued.documentNumber, /^VAT-\d{6}$/);
     const vatSnapshot = issuedDocumentSnapshotSchema.parse((await db.documentSnapshot.findUniqueOrThrow({ where: { documentId: vat.id } })).payload);

@@ -13,9 +13,7 @@ function parse(form: FormData) {
   let lines: unknown = []; try { lines = JSON.parse(String(form.get("lines") ?? "[]")); } catch { /* validated below */ }
   return {
     type: form.get("type"), customerId: form.get("customerId"),
-    customerName: form.get("customerName"), customerEmail: form.get("customerEmail"),
-    customerPhone: form.get("customerPhone"), customerAddress: form.get("customerAddress"),
-    customerBusinessTin: form.get("customerBusinessTin"),
+    customerName: form.get("customerName"),
     currency: form.get("currency"), draftDate: form.get("draftDate"), dueDate: form.get("dueDate"), notes: form.get("notes"), lines,
   };
 }
