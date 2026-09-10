@@ -37,7 +37,7 @@ export const issuedDocumentSnapshotSchema = z.object({
     email: nullableText, phone: nullableText, address: nullableText, registrationNumber: nullableText, businessTin: nullableText,
     logo: z.object({ storageKey: z.string().min(1).max(1024), mimeType: z.string().min(1).max(50), width: z.number().int().positive(), height: z.number().int().positive(), checksum: z.string().length(64) }).strict().nullable(),
   }).strict(),
-  customer: z.object({ id: z.string().uuid(), name: z.string().min(1).max(200), email: nullableText, phone: nullableText, address: nullableText, businessTin: nullableText }).strict().nullable(),
+  customer: z.object({ id: z.string().uuid().nullable(), name: z.string().min(1).max(200), email: nullableText, phone: nullableText, address: nullableText, businessTin: nullableText }).strict().nullable(),
   lines: z.array(z.object({
     order: z.number().int().positive(), description: z.string().min(1).max(2_000), quantity: z.string().regex(/^\d+(\.\d{1,6})?$/),
     unitPrice: moneySchema, subtotal: moneySchema,
@@ -53,17 +53,19 @@ export const issuedDocumentSnapshotSchema = z.object({
 
 export type IssuedDocumentSnapshot = z.infer<typeof issuedDocumentSnapshotSchema>;
 
-export function buildCustomerSnapshot(customer: {
-  id: string; name: string; email: string | null; phone: string | null;
-  address: string | null; businessTin: string | null;
-} | null) {
-  return customer ? {
-    id: customer.id,
-    name: customer.name,
-    email: customer.email,
-    phone: customer.phone,
-    address: customer.address,
-    businessTin: customer.businessTin,
+export function buildCustomerSnapshot(document: {
+  customerId: string | null; customerName: string | null; customerEmail: string | null;
+  customerPhone: string | null; customerAddress: string | null; customerBusinessTin: string | null;
+  customer: { id: string; name: string; email: string | null; phone: string | null; address: string | null; businessTin: string | null } | null;
+}) {
+  const name = document.customerName?.trim() || document.customer?.name;
+  return name ? {
+    id: document.customerId ?? document.customer?.id ?? null,
+    name,
+    email: document.customerEmail ?? document.customer?.email ?? null,
+    phone: document.customerPhone ?? document.customer?.phone ?? null,
+    address: document.customerAddress ?? document.customer?.address ?? null,
+    businessTin: document.customerBusinessTin ?? document.customer?.businessTin ?? null,
   } : null;
 }
 
@@ -115,7 +117,10 @@ export function buildIssuedDocumentSnapshot(input: {
     id: string; draftReference: string; type: "INVOICE" | "RECEIPT" | "VAT_INVOICE"; currency: string;
     draftDate: Date; dueDate: Date | null; notes: string | null; taxCalculation: Prisma.JsonValue | null;
     subtotal: Prisma.Decimal; discountTotal: Prisma.Decimal; rateTotal: Prisma.Decimal; taxableValue: Prisma.Decimal; taxTotal: Prisma.Decimal; grandTotal: Prisma.Decimal;
-    workspace: Parameters<typeof buildIssuerSnapshot>[0]; customer: Parameters<typeof buildCustomerSnapshot>[0];
+    workspace: Parameters<typeof buildIssuerSnapshot>[0];
+    customerId: string | null; customerName: string | null; customerEmail: string | null;
+    customerPhone: string | null; customerAddress: string | null; customerBusinessTin: string | null;
+    customer: Parameters<typeof buildCustomerSnapshot>[0]["customer"];
     lines: Parameters<typeof buildLineSnapshots>[0];
   };
   documentNumber: string;
@@ -137,7 +142,7 @@ export function buildIssuedDocumentSnapshot(input: {
       notes: input.document.notes,
     },
     issuer: buildIssuerSnapshot(input.document.workspace),
-    customer: buildCustomerSnapshot(input.document.customer),
+    customer: buildCustomerSnapshot(input.document),
     lines: buildLineSnapshots(input.document.lines),
     tax: input.document.type === "VAT_INVOICE" ? input.document.taxCalculation : null,
     totals: {
@@ -187,7 +192,7 @@ export async function buildFutureDocumentSnapshot(input: {
         notes: document.notes,
       },
       issuer: buildIssuerSnapshot(document.workspace),
-      customer: buildCustomerSnapshot(document.customer),
+      customer: buildCustomerSnapshot(document),
       lines: buildLineSnapshots(document.lines),
       tax: document.taxCalculation,
       totals: {

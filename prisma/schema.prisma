@@ -597,6 +597,11 @@ model Document {
   createdByUserId String            @db.Uuid
   issuedByUserId  String?           @db.Uuid
   customerId      String?           @db.Uuid
+  customerName    String?           @db.VarChar(200)
+  customerEmail   String?           @db.VarChar(320)
+  customerPhone   String?           @db.VarChar(50)
+  customerAddress String?           @db.Text
+  customerBusinessTin String?       @db.VarChar(100)
   taxVersionId    String?           @db.Uuid
   type            DocumentType
   status          DocumentStatus    @default(DRAFT)

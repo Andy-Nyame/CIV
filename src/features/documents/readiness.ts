@@ -54,7 +54,7 @@ export async function validateIssueReadinessInTransaction(
 
     if (document.type === "VAT_INVOICE") {
       if (document.currency !== "GHS") errors.push({ code: "CURRENCY_MISMATCH", message: "Ghana VAT invoices must use GHS.", field: "currency" });
-      if (!document.customer) errors.push({ code: "CUSTOMER_REQUIRED", message: "Select a customer before issuing a VAT invoice.", field: "customerId" });
+      if (!(document.customerName?.trim() || document.customer?.name)) errors.push({ code: "CUSTOMER_REQUIRED", message: "Enter a customer name before issuing a VAT invoice.", field: "customerName" });
       if (!document.workspace.businessTin?.trim()) errors.push({ code: "ISSUER_TIN_REQUIRED", message: "Add the workspace TIN before issuing a VAT invoice.", field: "businessTin" });
       try {
         const version = await resolveGhanaVatVersion(document.draftDate, transaction);

@@ -1,5 +1,5 @@
 import "server-only";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { CAPABILITIES } from "@/features/authorization/capabilities";
 import { AUDIT_RESOURCE_TYPES } from "@/features/audit/registry";
 import { recordAuditEvent } from "@/features/audit/service";
@@ -15,6 +15,115 @@ import { calculateDraftLine, calculateDraftTotals } from "./calculations";
 import { documentIdSchema, draftInputSchema } from "./validation";
 
 function draftReference() { return `DRAFT-${randomBytes(6).toString("hex").toUpperCase()}`; }
+
+type DraftCustomer = {
+  customerId: string | null;
+  customerName: string | null;
+  customerEmail: string | null;
+  customerPhone: string | null;
+  customerAddress: string | null;
+  customerBusinessTin: string | null;
+};
+
+type CustomerAutoSave = (input: { actorUserId: string; workspaceId: string; documentId: string }) => Promise<string | null>;
+type DraftServiceOptions = { autoSaveCustomer?: CustomerAutoSave };
+
+async function resolveDraftCustomer(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+  customer: DraftCustomer,
+  retainedCustomerId?: string | null,
+) {
+  if (!customer.customerId) return customer;
+  const saved = await tx.customer.findFirst({
+    where: { id: customer.customerId, workspaceId, ...(customer.customerId === retainedCustomerId ? {} : { archivedAt: null }) },
+    select: { id: true, name: true, email: true, phone: true, address: true, businessTin: true },
+  });
+  if (!saved) throw new BusinessDataValidationError({ customerId: ["Customer is unavailable."] });
+  if (customer.customerName) return customer;
+  return {
+    customerId: saved.id,
+    customerName: saved.name,
+    customerEmail: saved.email,
+    customerPhone: saved.phone,
+    customerAddress: saved.address,
+    customerBusinessTin: saved.businessTin,
+  };
+}
+
+export async function autoSaveDocumentCustomer(input: {
+  actorUserId: string;
+  workspaceId: string;
+  documentId: string;
+}) {
+  return db.$transaction(async (tx) => {
+    await requireWorkspaceCapabilityInTransaction(tx, input.actorUserId, input.workspaceId, CAPABILITIES.CREATE_DOCUMENT);
+    const document = await tx.document.findFirst({
+      where: { id: input.documentId, workspaceId: input.workspaceId, status: "DRAFT", archivedAt: null },
+      select: { customerId: true, customerName: true, customerEmail: true, customerPhone: true, customerAddress: true, customerBusinessTin: true },
+    });
+    if (!document?.customerName || document.customerId) return document?.customerId ?? null;
+
+    const normalizedIdentity = [document.customerName.toLowerCase(), document.customerEmail, document.customerPhone, document.customerBusinessTin].join("\u0000");
+    const identityLock = createHash("sha256").update(normalizedIdentity).digest("hex");
+    await lockBusinessResource(tx, `document-customer:${input.workspaceId}:${identityLock}`);
+
+    const identityMatches: Prisma.CustomerWhereInput[] = [];
+    if (document.customerEmail) identityMatches.push({ email: { equals: document.customerEmail, mode: "insensitive" } });
+    if (document.customerPhone) identityMatches.push({ phone: document.customerPhone });
+    if (document.customerBusinessTin) identityMatches.push({ businessTin: { equals: document.customerBusinessTin, mode: "insensitive" } });
+    const existing = await tx.customer.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        archivedAt: null,
+        name: { equals: document.customerName, mode: "insensitive" },
+        ...(identityMatches.length ? { OR: identityMatches } : { email: null, phone: null, businessTin: null }),
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true },
+    });
+    const customer = existing ?? await tx.customer.create({
+      data: {
+        workspaceId: input.workspaceId,
+        createdByUserId: input.actorUserId,
+        name: document.customerName,
+        email: document.customerEmail,
+        phone: document.customerPhone,
+        address: document.customerAddress,
+        businessTin: document.customerBusinessTin,
+      },
+      select: { id: true },
+    });
+    if (!existing) await recordAuditEvent(tx, {
+      workspaceId: input.workspaceId,
+      actorUserId: input.actorUserId,
+      action: "CUSTOMER_CREATED",
+      resourceType: AUDIT_RESOURCE_TYPES.CUSTOMER,
+      resourceId: customer.id,
+      metadata: { customerName: document.customerName },
+    });
+    await tx.document.updateMany({
+      where: { id: input.documentId, workspaceId: input.workspaceId, status: "DRAFT", archivedAt: null, customerId: null },
+      data: { customerId: customer.id },
+    });
+    return customer.id;
+  }, businessDataTransactionOptions);
+}
+
+async function attachReusableCustomer<T extends { id: string; customerId: string | null; customerName: string | null }>(
+  document: T,
+  input: { actorUserId: string; workspaceId: string },
+  options: DraftServiceOptions,
+) {
+  if (document.customerId || !document.customerName) return document;
+  try {
+    const customerId = await (options.autoSaveCustomer ?? autoSaveDocumentCustomer)({ ...input, documentId: document.id });
+    return customerId ? { ...document, customerId } : document;
+  } catch {
+    // The document is already safely persisted. Reusable-contact saving is best effort.
+    return document;
+  }
+}
 
 async function prepareLines(
   tx: Prisma.TransactionClient,
@@ -54,17 +163,17 @@ async function prepareDocumentCalculation(tx: Prisma.TransactionClient, parsed: 
   return { taxVersionId: version.id, subtotal: totals.subtotal, discountTotal: new Prisma.Decimal(0), rateTotal: new Prisma.Decimal(0), taxableValue: new Prisma.Decimal(calculation.taxableValue), taxTotal: new Prisma.Decimal(calculation.taxTotal), grandTotal: new Prisma.Decimal(calculation.grossTotal), taxCalculation: snapshot as unknown as Prisma.InputJsonValue };
 }
 
-export async function createDraft(input: { actorUserId: string; workspaceId: string; data: unknown }) {
+export async function createDraft(input: { actorUserId: string; workspaceId: string; data: unknown }, options: DraftServiceOptions = {}) {
   const parsed = draftInputSchema.safeParse(input.data); if (!parsed.success) throw new BusinessDataValidationError(parsed.error.flatten().fieldErrors);
-  return db.$transaction(async (tx) => {
+  const document = await db.$transaction(async (tx) => {
     await requireWorkspaceCapabilityInTransaction(tx, input.actorUserId, input.workspaceId, CAPABILITIES.CREATE_DOCUMENT);
-    if (parsed.data.customerId && !(await tx.customer.findFirst({ where: { id: parsed.data.customerId, workspaceId: input.workspaceId, archivedAt: null }, select: { id: true } }))) throw new BusinessDataValidationError({ customerId: ["Customer is unavailable."] });
+    const customer = await resolveDraftCustomer(tx, input.workspaceId, parsed.data);
     const { prepared, totals } = await prepareLines(tx, input.workspaceId, parsed.data.currency, parsed.data.lines);
     const calculation = await prepareDocumentCalculation(tx, parsed.data, totals);
     let document = null;
     for (let attempt = 0; attempt < 5 && !document; attempt++) {
       try {
-        document = await tx.document.create({ data: { workspaceId: input.workspaceId, createdByUserId: input.actorUserId, customerId: parsed.data.customerId, type: parsed.data.type, status: "DRAFT", draftReference: draftReference(), documentNumber: null, currency: parsed.data.currency, draftDate: new Date(`${parsed.data.draftDate}T00:00:00.000Z`), dueDate: parsed.data.dueDate ? new Date(`${parsed.data.dueDate}T00:00:00.000Z`) : null, notes: parsed.data.notes, ...calculation, lines: { create: prepared } }, include: { lines: true } });
+        document = await tx.document.create({ data: { workspaceId: input.workspaceId, createdByUserId: input.actorUserId, ...customer, type: parsed.data.type, status: "DRAFT", draftReference: draftReference(), documentNumber: null, currency: parsed.data.currency, draftDate: new Date(`${parsed.data.draftDate}T00:00:00.000Z`), dueDate: parsed.data.dueDate ? new Date(`${parsed.data.dueDate}T00:00:00.000Z`) : null, notes: parsed.data.notes, ...calculation, lines: { create: prepared } }, include: { lines: true } });
       } catch (error) {
         const isDraftReferenceCollision = error instanceof Prisma.PrismaClientKnownRequestError
           && error.code === "P2002"
@@ -77,14 +186,15 @@ export async function createDraft(input: { actorUserId: string; workspaceId: str
     await recordAuditEvent(tx, { workspaceId: input.workspaceId, actorUserId: input.actorUserId, action: "DOCUMENT_DRAFT_CREATED", resourceType: AUDIT_RESOURCE_TYPES.DOCUMENT, resourceId: document!.id, metadata: { documentType: parsed.data.type, draftReference: document!.draftReference } });
     return document!;
   }, businessDataTransactionOptions);
+  return attachReusableCustomer(document, input, options);
 }
 
-export async function updateDraft(input: { actorUserId: string; workspaceId: string; documentId: unknown; data: unknown }) {
+export async function updateDraft(input: { actorUserId: string; workspaceId: string; documentId: unknown; data: unknown }, options: DraftServiceOptions = {}) {
   const id = documentIdSchema.safeParse(input.documentId); const parsed = draftInputSchema.safeParse(input.data);
   if (!id.success || !parsed.success) throw new BusinessDataValidationError(parsed.success ? {} : parsed.error.flatten().fieldErrors);
-  return db.$transaction(async (tx) => {
+  const document = await db.$transaction(async (tx) => {
     await lockBusinessResource(tx, `document:${id.data}`); const { document: before } = await requireDocumentAccessInTransaction(tx, input.actorUserId, input.workspaceId, id.data);
-    if (parsed.data.customerId && parsed.data.customerId !== before.customerId && !(await tx.customer.findFirst({ where: { id: parsed.data.customerId, workspaceId: input.workspaceId, archivedAt: null }, select: { id: true } }))) throw new BusinessDataValidationError({ customerId: ["Customer is unavailable."] });
+    const customer = await resolveDraftCustomer(tx, input.workspaceId, parsed.data, before.customerId);
     const existingLines = await tx.documentLine.findMany({ where: { documentId: id.data }, select: { id: true, catalogItemId: true, customRateId: true, rateNameSnapshot: true, rateTypeSnapshot: true, rateValueSnapshot: true } });
     const { prepared, totals } = await prepareLines(tx, input.workspaceId, parsed.data.currency, parsed.data.lines, {
       catalogueItemIds: new Set(existingLines.flatMap(({ catalogItemId }) => catalogItemId ? [catalogItemId] : [])),
@@ -93,10 +203,11 @@ export async function updateDraft(input: { actorUserId: string; workspaceId: str
     });
     const calculation = await prepareDocumentCalculation(tx, parsed.data, totals);
     await tx.documentLine.deleteMany({ where: { documentId: id.data } });
-    const document = await tx.document.update({ where: { id: id.data }, data: { customerId: parsed.data.customerId, type: parsed.data.type, currency: parsed.data.currency, draftDate: new Date(`${parsed.data.draftDate}T00:00:00.000Z`), dueDate: parsed.data.dueDate ? new Date(`${parsed.data.dueDate}T00:00:00.000Z`) : null, notes: parsed.data.notes, ...calculation, lines: { create: prepared } }, include: { lines: true } });
+    const document = await tx.document.update({ where: { id: id.data }, data: { ...customer, type: parsed.data.type, currency: parsed.data.currency, draftDate: new Date(`${parsed.data.draftDate}T00:00:00.000Z`), dueDate: parsed.data.dueDate ? new Date(`${parsed.data.dueDate}T00:00:00.000Z`) : null, notes: parsed.data.notes, ...calculation, lines: { create: prepared } }, include: { lines: true } });
     await recordAuditEvent(tx, { workspaceId: input.workspaceId, actorUserId: input.actorUserId, action: "DOCUMENT_DRAFT_UPDATED", resourceType: AUDIT_RESOURCE_TYPES.DOCUMENT, resourceId: document.id, metadata: { documentType: parsed.data.type, draftReference: before.draftReference, total: document.grandTotal.toString(), currency: document.currency } });
     return document;
   }, businessDataTransactionOptions);
+  return attachReusableCustomer(document, input, options);
 }
 
 export async function archiveDraft(input: { actorUserId: string; workspaceId: string; documentId: unknown }) {

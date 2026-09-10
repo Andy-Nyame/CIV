@@ -233,7 +233,7 @@ export async function issueDocument(input: {
       metadata: {
         documentType,
         documentNumber,
-        customerName: authoritativeDocument.customer?.name ?? null,
+        customerName: authoritativeDocument.customerName ?? authoritativeDocument.customer?.name ?? null,
         total: calculation.grandTotal.toFixed(2),
         currency: draft.currency,
       },
