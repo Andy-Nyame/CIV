@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 
 import { updateWorkspaceSettingsAction } from "@/features/workspaces/settings-actions";
 import { initialWorkspaceSettingsFormState } from "@/features/workspaces/types";
@@ -8,6 +8,9 @@ import { initialWorkspaceSettingsFormState } from "@/features/workspaces/types";
 type WorkspaceValues = {
   name: string;
   type: "INDIVIDUAL" | "BUSINESS" | "ORGANIZATION";
+  environment: "NORMAL" | "TEST";
+  legalName: string | null;
+  tradingName: string | null;
   country: string;
   currency: string;
   email: string | null;
@@ -15,6 +18,10 @@ type WorkspaceValues = {
   address: string | null;
   registrationNumber: string | null;
   businessTin: string | null;
+  taxpayerId: string | null;
+  taxpayerIdType: "GHANA_CARD_PIN" | "GRA_TIN" | null;
+  taxpayerVerificationStatus: "UNVERIFIED" | "VERIFIED";
+  vatRegistered: boolean;
 };
 
 const typeLabels = {
@@ -40,6 +47,7 @@ export function WorkspaceSettingsForm({
     updateWorkspaceSettingsAction,
     initialWorkspaceSettingsFormState,
   );
+  const [workspaceType, setWorkspaceType] = useState(workspace.type);
   const inputClass =
     "min-h-12 rounded-lg border border-border bg-surface px-3.5 font-normal text-text disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-muted";
 
@@ -70,8 +78,9 @@ export function WorkspaceSettingsForm({
           </label>
           <label className="grid gap-2 text-sm font-semibold text-text">
             Workspace type
-            <input className={inputClass} value={typeLabels[workspace.type]} disabled readOnly />
-            <span className="text-sm font-normal text-muted">Workspace type is set when the workspace is created.</span>
+            <select className={inputClass} name="type" value={workspaceType} onChange={(event) => setWorkspaceType(event.target.value as WorkspaceValues["type"])} disabled={!canManage}>
+              {Object.entries(typeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
           </label>
           <label className="grid gap-2 text-sm font-semibold text-text">
             Country
@@ -128,7 +137,7 @@ export function WorkspaceSettingsForm({
             <FieldError errors={state.fieldErrors?.phone} />
           </label>
           <label className="grid gap-2 text-sm font-semibold text-text sm:col-span-2">
-            Address
+            Business address
             <textarea
               className="min-h-28 rounded-lg border border-border bg-surface px-3.5 py-3 font-normal text-text disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-muted"
               name="address"
@@ -142,21 +151,28 @@ export function WorkspaceSettingsForm({
         </div>
       </section>
 
-      <section id="business-details" className="border-t border-border pt-8" aria-labelledby="business-details-heading">
+      <section id="taxpayer-details" className="border-t border-border pt-8" aria-labelledby="taxpayer-details-heading">
         <div className="max-w-2xl">
-          <h2 id="business-details-heading" className="text-xl font-bold text-text">
-            Business Details
+          <h2 id="taxpayer-details-heading" className="text-xl font-bold text-text">
+            Taxpayer information
           </h2>
           <p className="mt-1 text-sm leading-6 text-muted">
-            {workspace.type === "INDIVIDUAL"
-              ? "Registration and TIN details are not required for an Individual workspace."
-              : "Optional official details for future business-document presentation."}
+            Required for document creation in a normal workspace. Saving a valid format does not constitute official GRA verification.
           </p>
         </div>
-        {workspace.type !== "INDIVIDUAL" ? (
-          <div className="mt-5 grid gap-5 sm:grid-cols-2">
+        <div className="mt-5 grid gap-5 sm:grid-cols-2">
+            <label className="grid gap-2 text-sm font-semibold text-text sm:col-span-2">
+              Legal / registered name
+              <input className={inputClass} name="legalName" defaultValue={workspace.legalName ?? ""} maxLength={200} disabled={!canManage} aria-invalid={Boolean(state.fieldErrors?.legalName)} />
+              <FieldError errors={state.fieldErrors?.legalName} />
+            </label>
             <label className="grid gap-2 text-sm font-semibold text-text">
-              Registration number
+              Trading name <span className="font-normal text-muted">(optional)</span>
+              <input className={inputClass} name="tradingName" defaultValue={workspace.tradingName ?? ""} maxLength={200} disabled={!canManage} aria-invalid={Boolean(state.fieldErrors?.tradingName)} />
+              <FieldError errors={state.fieldErrors?.tradingName} />
+            </label>
+            <label className="grid gap-2 text-sm font-semibold text-text">
+              Registration number <span className="font-normal text-muted">(optional)</span>
               <input
                 className={inputClass}
                 name="registrationNumber"
@@ -168,24 +184,27 @@ export function WorkspaceSettingsForm({
               <FieldError errors={state.fieldErrors?.registrationNumber} />
             </label>
             <label className="grid gap-2 text-sm font-semibold text-text">
-              Tax / TIN number
+              {workspaceType === "INDIVIDUAL" ? "Ghana Card PIN" : "GRA TIN"}
               <input
                 className={inputClass}
-                name="businessTin"
-                defaultValue={workspace.businessTin ?? ""}
+                name="taxpayerId"
+                defaultValue={workspace.taxpayerId ?? (workspaceType === "INDIVIDUAL" ? "" : workspace.businessTin ?? "")}
                 maxLength={100}
                 disabled={!canManage}
-                aria-invalid={Boolean(state.fieldErrors?.businessTin)}
+                aria-invalid={Boolean(state.fieldErrors?.taxpayerId)}
               />
-              <FieldError errors={state.fieldErrors?.businessTin} />
+              <span className="text-sm font-normal text-muted">Status: {workspace.taxpayerVerificationStatus === "VERIFIED" ? "Verified" : "Unverified"}</span>
+              <FieldError errors={state.fieldErrors?.taxpayerId} />
+            </label>
+            <label className="grid gap-2 text-sm font-semibold text-text">
+              VAT registration status
+              <select className={inputClass} name="vatRegistered" defaultValue={workspace.vatRegistered ? "true" : "false"} disabled={!canManage}>
+                <option value="false">Not VAT registered</option>
+                <option value="true">VAT registered</option>
+              </select>
+              <span className="text-sm font-normal text-muted">A taxpayer ID alone does not make this workspace VAT eligible.</span>
             </label>
           </div>
-        ) : (
-          <input name="registrationNumber" type="hidden" value={workspace.registrationNumber ?? ""} />
-        )}
-        {workspace.type === "INDIVIDUAL" ? (
-          <input name="businessTin" type="hidden" value={workspace.businessTin ?? ""} />
-        ) : null}
       </section>
 
       {state.message ? (

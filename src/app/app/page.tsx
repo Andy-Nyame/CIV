@@ -10,6 +10,7 @@ import {
   getWorkspaceCommercialSummaryPermissions,
 } from "@/features/commercial/workspace-summary";
 import { getWorkspaceContextForUser } from "@/features/workspaces/access";
+import { getWorkspaceDocumentReadiness } from "@/features/workspaces/document-readiness-service";
 
 export const metadata: Metadata = {
   title: "Home",
@@ -37,6 +38,12 @@ export default async function DashboardPage() {
     : null;
   const permissions = currentWorkspace
     ? getWorkspaceCommercialSummaryPermissions(currentWorkspace.role)
+    : null;
+  const documentReadiness = currentWorkspace
+    ? await Promise.all([
+        getWorkspaceDocumentReadiness({ actorUserId: user.id, workspaceId: currentWorkspace.id }),
+        getWorkspaceDocumentReadiness({ actorUserId: user.id, workspaceId: currentWorkspace.id, documentType: "VAT_INVOICE" }),
+      ])
     : null;
   const trialDaysRemaining = commercialSummary?.activeTrial
     ? Math.max(
@@ -66,7 +73,7 @@ export default async function DashboardPage() {
       <PageHeading
         title="Welcome to CIV"
         description={`Create, issue and manage professional business documents for ${workspaceName}.`}
-        action={<CreateDocumentMenu label="Create Document" />}
+        action={documentReadiness ? <CreateDocumentMenu label="Create Document" readiness={{ ready: documentReadiness[0].ready, vatReady: documentReadiness[1].ready, isTestWorkspace: documentReadiness[0].isTestWorkspace, issues: documentReadiness[0].issues.map(({ message }) => message) }} /> : null}
       />
 
       {commercialSummary && permissions ? (

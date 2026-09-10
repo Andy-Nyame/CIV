@@ -1,20 +1,35 @@
 import "server-only";
 
 import { CAPABILITIES, getDocumentAccessFilter } from "@/features/authorization/capabilities";
-import { requireWorkspaceCapabilityInTransaction } from "@/features/business-data/authorization";
 import { businessDataTransactionOptions } from "@/features/business-data/locking";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { calculateTrustedTax } from "@/features/tax/calculation";
 import { resolveGhanaVatVersion } from "@/features/tax/resolver";
 import { calculateDraftLine, calculateDraftTotals } from "./calculations";
+import { authorizeWorkspaceDocumentReadinessInTransaction } from "@/features/workspaces/document-readiness-service";
+import type { WorkspaceReadinessIssue } from "@/features/workspaces/document-readiness";
+import { evaluateWorkspaceDocumentReadiness } from "@/features/workspaces/document-readiness";
 
 export type IssueReadinessCode =
   | "DRAFT_UNAVAILABLE" | "UNSUPPORTED_TYPE" | "NO_LINES" | "INVALID_TOTAL" | "INVALID_DATE"
   | "CURRENCY_MISMATCH" | "CUSTOM_RATE_UNAVAILABLE" | "CUSTOMER_REQUIRED" | "CALCULATION_INVALID"
-  | "ISSUER_TIN_REQUIRED" | "TRUSTED_TAX_UNAVAILABLE" | "TAX_CALCULATION_STALE";
+  | "WORKSPACE_SETUP_INCOMPLETE" | "VAT_REGISTRATION_REQUIRED" | "TEST_WORKSPACE_ACCESS_REQUIRED"
+  | "TEST_STATUS_INVALID" | "TRUSTED_TAX_UNAVAILABLE" | "TAX_CALCULATION_STALE";
 
 export type IssueReadinessError = { code: IssueReadinessCode; message: string; field?: string };
+
+export function workspaceIssuesForIssuance(issues: WorkspaceReadinessIssue[]): IssueReadinessError[] {
+  return issues.map((issue) => ({
+    code: issue.code === "VAT_REGISTRATION_REQUIRED"
+      ? "VAT_REGISTRATION_REQUIRED"
+      : issue.code === "TEST_WORKSPACE_ACCESS_REQUIRED"
+        ? "TEST_WORKSPACE_ACCESS_REQUIRED"
+        : "WORKSPACE_SETUP_INCOMPLETE",
+    message: issue.message,
+    field: issue.field,
+  }));
+}
 
 export async function validateIssueReadiness(input: {
   actorUserId: string;
@@ -27,10 +42,10 @@ export async function validateIssueReadiness(input: {
 export async function validateIssueReadinessInTransaction(
   transaction: Prisma.TransactionClient,
   input: { actorUserId: string; workspaceId: string; documentId: string },
+  authorizedContext?: Awaited<ReturnType<typeof authorizeWorkspaceDocumentReadinessInTransaction>>,
 ) {
-    const membership = await requireWorkspaceCapabilityInTransaction(
-      transaction, input.actorUserId, input.workspaceId, CAPABILITIES.ISSUE_DOCUMENT,
-    );
+    const readinessContext = authorizedContext ?? await authorizeWorkspaceDocumentReadinessInTransaction({ actorUserId: input.actorUserId, workspaceId: input.workspaceId, capability: CAPABILITIES.ISSUE_DOCUMENT }, transaction);
+    const membership = readinessContext.membership;
     const access = getDocumentAccessFilter(membership);
     const document = access ? await transaction.document.findFirst({
       where: { id: input.documentId, ...access, status: "DRAFT", archivedAt: null },
@@ -39,6 +54,11 @@ export async function validateIssueReadinessInTransaction(
     if (!document) return { ready: false, errors: [{ code: "DRAFT_UNAVAILABLE", message: "The draft is unavailable for issue preparation." }] satisfies IssueReadinessError[] };
 
     const errors: IssueReadinessError[] = [];
+    const workspaceReadiness = evaluateWorkspaceDocumentReadiness({ workspace: readinessContext.workspace, documentType: document.type, isSuperAdmin: readinessContext.isSuperAdmin });
+    errors.push(...workspaceIssuesForIssuance(workspaceReadiness.issues));
+    if (document.isTestDocument !== workspaceReadiness.isTestWorkspace) {
+      errors.push({ code: "TEST_STATUS_INVALID", message: "The document TEST status does not match its workspace and cannot be changed." });
+    }
     if (!["INVOICE", "RECEIPT", "VAT_INVOICE"].includes(document.type)) errors.push({ code: "UNSUPPORTED_TYPE", message: "This document type cannot be issued yet.", field: "type" });
     if (!document.lines.length) errors.push({ code: "NO_LINES", message: "Add at least one valid line item.", field: "lines" });
     if (!(document.customerName?.trim() || document.customer?.name)) errors.push({ code: "CUSTOMER_REQUIRED", message: "Enter a customer name before issuing this document.", field: "customerName" });
@@ -55,7 +75,6 @@ export async function validateIssueReadinessInTransaction(
 
     if (document.type === "VAT_INVOICE") {
       if (document.currency !== "GHS") errors.push({ code: "CURRENCY_MISMATCH", message: "Ghana VAT invoices must use GHS.", field: "currency" });
-      if (!document.workspace.businessTin?.trim()) errors.push({ code: "ISSUER_TIN_REQUIRED", message: "Add the workspace TIN before issuing a VAT invoice.", field: "businessTin" });
       try {
         const version = await resolveGhanaVatVersion(document.draftDate, transaction);
         const calculated = calculateTrustedTax(document.subtotal, version.components);

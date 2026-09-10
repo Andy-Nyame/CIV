@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 
 import { MembershipStatus } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
+import { isSuperAdminEmail, isSuperAdminUserId } from "@/features/platform-admin/super-admin";
 
 import type { WorkspaceContext, WorkspaceOption } from "./types";
 import { workspaceIdSchema } from "./validation";
@@ -20,7 +21,7 @@ export async function requireWorkspaceMembership(
     return null;
   }
 
-  return db.membership.findFirst({
+  const membership = await db.membership.findFirst({
     where: {
       userId,
       workspaceId: result.data,
@@ -29,28 +30,38 @@ export async function requireWorkspaceMembership(
     },
     select: {
       role: true,
+      user: { select: { email: true } },
       workspace: {
         select: {
           id: true,
           name: true,
           type: true,
           currency: true,
+          environment: true,
         },
       },
     },
   });
+  if (membership?.workspace.environment === "TEST" && !isSuperAdminEmail(membership.user.email)) {
+    return null;
+  }
+  return membership;
 }
 
 export async function getWorkspaceContextForUser(
   userId: string,
 ): Promise<WorkspaceContext> {
   const cookieStore = await cookies();
+  const isSuperAdmin = await isSuperAdminUserId(userId);
   const preferredWorkspaceId = cookieStore.get(activeWorkspaceCookieName)?.value;
   const memberships = await db.membership.findMany({
     where: {
       userId,
       status: MembershipStatus.ACTIVE,
-      workspace: { archivedAt: null },
+      workspace: {
+        archivedAt: null,
+        ...(!isSuperAdmin ? { environment: "NORMAL" as const } : {}),
+      },
     },
     orderBy: [{ createdAt: "asc" }, { workspaceId: "asc" }],
     select: {
@@ -61,6 +72,7 @@ export async function getWorkspaceContextForUser(
           name: true,
           type: true,
           currency: true,
+          environment: true,
         },
       },
     },

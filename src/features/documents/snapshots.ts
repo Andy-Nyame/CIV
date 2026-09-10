@@ -30,11 +30,17 @@ export const issuedDocumentSnapshotSchema = z.object({
     documentNumber: z.string().min(5).max(100), type: z.enum(["INVOICE", "RECEIPT", "VAT_INVOICE"]),
     status: z.literal("ISSUED"), currency: z.string().length(3), issueDate: z.string().date(),
     issuedAt: z.string().datetime(), dueDate: z.string().date().nullable(), notes: z.string().nullable(),
+    isTestDocument: z.boolean().optional().default(false),
   }).strict(),
   issuer: z.object({
     workspaceId: z.string().uuid(), displayName: z.string().min(1).max(200),
     issuerType: z.enum(["INDIVIDUAL", "BUSINESS", "ORGANIZATION"]), country: z.string().length(2), currency: z.string().length(3),
+    legalName: nullableText.optional().default(null), tradingName: nullableText.optional().default(null),
     email: nullableText, phone: nullableText, address: nullableText, registrationNumber: nullableText, businessTin: nullableText,
+    taxpayerIdType: z.enum(["GHANA_CARD_PIN", "GRA_TIN"]).nullable().optional().default(null),
+    taxpayerId: nullableText.optional().default(null),
+    taxpayerVerificationStatus: z.enum(["UNVERIFIED", "VERIFIED"]).nullable().optional().default(null),
+    vatRegistered: z.boolean().nullable().optional().default(null),
     logo: z.object({ storageKey: z.string().min(1).max(1024), mimeType: z.string().min(1).max(50), width: z.number().int().positive(), height: z.number().int().positive(), checksum: z.string().length(64) }).strict().nullable(),
   }).strict(),
   customer: z.object({ id: z.string().uuid().nullable(), name: z.string().min(1).max(200), email: nullableText, phone: nullableText, address: nullableText, businessTin: nullableText }).strict().nullable(),
@@ -48,7 +54,7 @@ export const issuedDocumentSnapshotSchema = z.object({
   totals: z.object({ subtotal: moneySchema, discount: moneySchema, customRates: moneySchema, taxableValue: moneySchema, trustedTax: moneySchema, grandTotal: moneySchema }).strict(),
   issuedBy: z.object({ userId: z.string().uuid(), displayName: z.string().min(1).max(320) }).strict(),
   presentation: z.object({ template: z.null(), signature: z.null() }).strict(),
-  verification: z.null(),
+  verification: z.object({ code: z.string().min(1).max(200) }).strict().nullable(),
 }).strict();
 
 export type IssuedDocumentSnapshot = z.infer<typeof issuedDocumentSnapshotSchema>;
@@ -71,8 +77,11 @@ export function buildCustomerSnapshot(document: {
 
 export function buildIssuerSnapshot(workspace: {
   id: string; name: string; type: string; country: string; currency: string;
+  legalName?: string | null; tradingName?: string | null;
   email: string | null; phone: string | null; address: string | null;
   registrationNumber: string | null; businessTin: string | null;
+  taxpayerIdType?: string | null; taxpayerId?: string | null;
+  taxpayerVerificationStatus?: string | null; vatRegistered?: boolean | null;
   logo: { storageKey: string; mimeType: string; width: number; height: number; checksum: string } | null;
 }) {
   return {
@@ -81,11 +90,17 @@ export function buildIssuerSnapshot(workspace: {
     issuerType: workspace.type,
     country: workspace.country,
     currency: workspace.currency,
+    legalName: workspace.legalName ?? null,
+    tradingName: workspace.tradingName ?? null,
     email: workspace.email,
     phone: workspace.phone,
     address: workspace.address,
     registrationNumber: workspace.registrationNumber,
     businessTin: workspace.businessTin,
+    taxpayerIdType: workspace.taxpayerIdType ?? null,
+    taxpayerId: workspace.taxpayerId ?? null,
+    taxpayerVerificationStatus: workspace.taxpayerVerificationStatus ?? null,
+    vatRegistered: workspace.vatRegistered ?? null,
     logo: workspace.logo ? { ...workspace.logo } : null,
   };
 }
@@ -115,6 +130,7 @@ export function buildLineSnapshots(lines: Array<{
 export function buildIssuedDocumentSnapshot(input: {
   document: {
     id: string; draftReference: string; type: "INVOICE" | "RECEIPT" | "VAT_INVOICE"; currency: string;
+    isTestDocument: boolean;
     draftDate: Date; dueDate: Date | null; notes: string | null; taxCalculation: Prisma.JsonValue | null;
     subtotal: Prisma.Decimal; discountTotal: Prisma.Decimal; rateTotal: Prisma.Decimal; taxableValue: Prisma.Decimal; taxTotal: Prisma.Decimal; grandTotal: Prisma.Decimal;
     workspace: Parameters<typeof buildIssuerSnapshot>[0];
@@ -140,6 +156,7 @@ export function buildIssuedDocumentSnapshot(input: {
       issuedAt: input.issuedAt.toISOString(),
       dueDate: input.document.dueDate?.toISOString().slice(0, 10) ?? null,
       notes: input.document.notes,
+      isTestDocument: input.document.isTestDocument,
     },
     issuer: buildIssuerSnapshot(input.document.workspace),
     customer: buildCustomerSnapshot(input.document),

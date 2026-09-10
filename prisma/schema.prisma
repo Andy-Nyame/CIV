@@ -15,6 +15,21 @@ enum WorkspaceType {
   ORGANIZATION
 }
 
+enum WorkspaceEnvironment {
+  NORMAL
+  TEST
+}
+
+enum TaxpayerIdType {
+  GHANA_CARD_PIN
+  GRA_TIN
+}
+
+enum TaxpayerVerificationStatus {
+  UNVERIFIED
+  VERIFIED
+}
+
 enum MembershipRole {
   OWNER
   ADMIN
@@ -383,6 +398,9 @@ model Workspace {
   id                           String                             @id @default(uuid()) @db.Uuid
   name                         String                             @db.VarChar(200)
   type                         WorkspaceType
+  environment                  WorkspaceEnvironment               @default(NORMAL)
+  legalName                    String?                            @db.VarChar(200)
+  tradingName                  String?                            @db.VarChar(200)
   country                      String                             @default("GH") @db.Char(2)
   currency                     String                             @default("GHS") @db.Char(3)
   email                        String?                            @db.VarChar(320)
@@ -390,6 +408,10 @@ model Workspace {
   address                      String?                            @db.Text
   registrationNumber           String?                            @db.VarChar(100)
   businessTin                  String?                            @db.VarChar(100)
+  taxpayerIdType               TaxpayerIdType?
+  taxpayerId                   String?                            @db.VarChar(100)
+  taxpayerVerificationStatus   TaxpayerVerificationStatus         @default(UNVERIFIED)
+  vatRegistered                Boolean                            @default(false)
   createdAt                    DateTime                           @default(now()) @db.Timestamptz(3)
   updatedAt                    DateTime                           @updatedAt @db.Timestamptz(3)
   archivedAt                   DateTime?                          @db.Timestamptz(3)
@@ -415,6 +437,7 @@ model Workspace {
   documentTemplates            DocumentTemplate[]
 
   @@index([type])
+  @@index([environment])
   @@index([archivedAt])
 }
 
@@ -605,6 +628,7 @@ model Document {
   taxVersionId    String?           @db.Uuid
   type            DocumentType
   status          DocumentStatus    @default(DRAFT)
+  isTestDocument  Boolean           @default(false)
   draftReference  String            @unique @db.VarChar(40)
   documentNumber  String?           @db.VarChar(100)
   civDocumentId   String?           @unique @db.VarChar(100)

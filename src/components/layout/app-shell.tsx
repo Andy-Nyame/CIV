@@ -28,6 +28,12 @@ type AppShellProps = {
   canViewActivity: boolean;
   privateProfilePhotoUrl: string | null;
   workspaceCommercialIndicator: WorkspaceCommercialIndicatorData;
+  documentReadiness: {
+    ready: boolean;
+    vatReady: boolean;
+    isTestWorkspace: boolean;
+    issues: string[];
+  };
 };
 
 export function AppShell({
@@ -38,6 +44,7 @@ export function AppShell({
   workspaceContext,
   privateProfilePhotoUrl,
   workspaceCommercialIndicator,
+  documentReadiness,
 }: AppShellProps) {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
 
@@ -87,7 +94,7 @@ export function AppShell({
         <div className="mt-8 grid gap-4">
           <WorkspaceSwitcher workspaceContext={workspaceContext} />
           <WorkspaceCommercialIndicator indicator={workspaceCommercialIndicator} />
-          <CreateDocumentMenu />
+          <CreateDocumentMenu readiness={documentReadiness} />
         </div>
         <div className="mt-6">
           <AppNavigation
@@ -105,7 +112,7 @@ export function AppShell({
         <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-3 border-b border-border bg-surface px-4 lg:hidden">
           <CivLogo href="/app" />
           <div className="flex items-center gap-2">
-            <CreateDocumentMenu compact />
+            <CreateDocumentMenu compact readiness={documentReadiness} />
             <button
               type="button"
               className="grid size-11 place-items-center rounded-lg border border-border bg-surface text-text hover:bg-hover"
@@ -158,7 +165,7 @@ export function AppShell({
             <div className="mt-7 grid gap-5">
               <WorkspaceSwitcher workspaceContext={workspaceContext} />
               <WorkspaceCommercialIndicator indicator={workspaceCommercialIndicator} />
-              <CreateDocumentMenu />
+              <CreateDocumentMenu readiness={documentReadiness} />
               <AppNavigation
                 canViewActivity={canViewActivity}
                 canViewTeam={canViewTeam}

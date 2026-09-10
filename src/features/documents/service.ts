@@ -8,6 +8,7 @@ import { BusinessDataConflictError, BusinessDataValidationError } from "@/featur
 import { businessDataTransactionOptions, lockBusinessResource } from "@/features/business-data/locking";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
+import { requireWorkspaceDocumentReadinessInTransaction } from "@/features/workspaces/document-readiness-service";
 import { calculateTrustedTax } from "@/features/tax/calculation";
 import { resolveDocumentTaxVersion } from "@/features/tax/resolver";
 import { buildTaxSnapshot } from "@/features/tax/snapshot";
@@ -174,14 +175,19 @@ async function prepareDocumentCalculation(tx: Prisma.TransactionClient, parsed: 
 export async function createDraft(input: { actorUserId: string; workspaceId: string; data: unknown }, options: DraftServiceOptions = {}) {
   const parsed = draftInputSchema.safeParse(input.data); if (!parsed.success) throw new BusinessDataValidationError(parsed.error.flatten().fieldErrors);
   const document = await db.$transaction(async (tx) => {
-    await requireWorkspaceCapabilityInTransaction(tx, input.actorUserId, input.workspaceId, CAPABILITIES.CREATE_DOCUMENT);
+    const { readiness } = await requireWorkspaceDocumentReadinessInTransaction({
+      actorUserId: input.actorUserId,
+      workspaceId: input.workspaceId,
+      documentType: parsed.data.type,
+      capability: CAPABILITIES.CREATE_DOCUMENT,
+    }, tx);
     const customer = await resolveDraftCustomer(tx, input.workspaceId, parsed.data);
     const { prepared, totals } = await prepareLines(tx, input.workspaceId, parsed.data.currency, parsed.data.lines);
     const calculation = await prepareDocumentCalculation(tx, parsed.data, totals);
     let document = null;
     for (let attempt = 0; attempt < 5 && !document; attempt++) {
       try {
-        document = await tx.document.create({ data: { workspaceId: input.workspaceId, createdByUserId: input.actorUserId, ...customer, type: parsed.data.type, status: "DRAFT", draftReference: draftReference(), documentNumber: null, currency: parsed.data.currency, draftDate: new Date(`${parsed.data.draftDate}T00:00:00.000Z`), dueDate: parsed.data.dueDate ? new Date(`${parsed.data.dueDate}T00:00:00.000Z`) : null, notes: parsed.data.notes, ...calculation, lines: { create: prepared } }, include: { lines: true } });
+        document = await tx.document.create({ data: { workspaceId: input.workspaceId, createdByUserId: input.actorUserId, ...customer, type: parsed.data.type, status: "DRAFT", isTestDocument: readiness.isTestWorkspace, draftReference: draftReference(), documentNumber: null, currency: parsed.data.currency, draftDate: new Date(`${parsed.data.draftDate}T00:00:00.000Z`), dueDate: parsed.data.dueDate ? new Date(`${parsed.data.dueDate}T00:00:00.000Z`) : null, notes: parsed.data.notes, ...calculation, lines: { create: prepared } }, include: { lines: true } });
       } catch (error) {
         const isDraftReferenceCollision = error instanceof Prisma.PrismaClientKnownRequestError
           && error.code === "P2002"
@@ -202,6 +208,15 @@ export async function updateDraft(input: { actorUserId: string; workspaceId: str
   if (!id.success || !parsed.success) throw new BusinessDataValidationError(parsed.success ? {} : parsed.error.flatten().fieldErrors);
   const document = await db.$transaction(async (tx) => {
     await lockBusinessResource(tx, `document:${id.data}`); const { document: before } = await requireDocumentAccessInTransaction(tx, input.actorUserId, input.workspaceId, id.data);
+    const { readiness } = await requireWorkspaceDocumentReadinessInTransaction({
+      actorUserId: input.actorUserId,
+      workspaceId: input.workspaceId,
+      documentType: parsed.data.type,
+      capability: CAPABILITIES.UPDATE_DRAFT_DOCUMENT,
+    }, tx);
+    if (before.isTestDocument !== readiness.isTestWorkspace) {
+      throw new BusinessDataConflictError("A document's TEST status cannot be changed.");
+    }
     const customer = await resolveDraftCustomer(tx, input.workspaceId, parsed.data, before);
     const existingLines = await tx.documentLine.findMany({ where: { documentId: id.data }, select: { id: true, catalogItemId: true, customRateId: true, rateNameSnapshot: true, rateTypeSnapshot: true, rateValueSnapshot: true } });
     const { prepared, totals } = await prepareLines(tx, input.workspaceId, parsed.data.currency, parsed.data.lines, {

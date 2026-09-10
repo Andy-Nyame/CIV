@@ -3,6 +3,9 @@ import "server-only";
 import { CAPABILITIES, hasCapability } from "@/features/authorization/capabilities";
 import { requirePageCapability } from "@/features/authorization/context";
 import { db } from "@/lib/db";
+import { isSuperAdminUserId } from "@/features/platform-admin/super-admin";
+
+import { evaluateWorkspaceDocumentReadiness } from "./document-readiness";
 
 export async function getWorkspaceSettingsPageData() {
   const context = await requirePageCapability(CAPABILITIES.VIEW_WORKSPACE);
@@ -13,6 +16,9 @@ export async function getWorkspaceSettingsPageData() {
       id: true,
       name: true,
       type: true,
+      environment: true,
+      legalName: true,
+      tradingName: true,
       country: true,
       currency: true,
       email: true,
@@ -20,6 +26,10 @@ export async function getWorkspaceSettingsPageData() {
       address: true,
       registrationNumber: true,
       businessTin: true,
+      taxpayerIdType: true,
+      taxpayerId: true,
+      taxpayerVerificationStatus: true,
+      vatRegistered: true,
       archivedAt: true,
       logo: {
         select: { updatedAt: true, mimeType: true, width: true, height: true },
@@ -41,10 +51,15 @@ export async function getWorkspaceSettingsPageData() {
     getArchivedOwnedWorkspaces(context.user.id),
   ]);
 
+  const isSuperAdmin = await isSuperAdminUserId(context.user.id);
+  const documentReadiness = evaluateWorkspaceDocumentReadiness({ workspace, isSuperAdmin });
+
   return {
     user: context.user,
     membership: context.membership,
     workspace,
+    isSuperAdmin,
+    documentReadiness,
     canManageSettings: hasCapability(
       context.membership,
       CAPABILITIES.MANAGE_WORKSPACE_SETTINGS,

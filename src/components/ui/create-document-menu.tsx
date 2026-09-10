@@ -11,12 +11,22 @@ const documentTypes = [
 type CreateDocumentMenuProps = {
   compact?: boolean;
   label?: "Create" | "Create Document";
+  readiness?: {
+    ready: boolean;
+    vatReady: boolean;
+    isTestWorkspace: boolean;
+    issues: string[];
+  };
 };
 
 export function CreateDocumentMenu({
   compact = false,
   label = "Create",
+  readiness,
 }: CreateDocumentMenuProps) {
+  if (readiness && !readiness.ready) {
+    return <div className="rounded-lg border border-civ-blue bg-active p-3"><p className="text-sm font-bold text-text">Complete workspace setup</p><p className="mt-1 text-xs leading-5 text-muted">{readiness.issues[0]}</p><Link href="/app/settings#taxpayer-details" className="mt-2 inline-block text-xs font-semibold text-link underline">Open settings</Link></div>;
+  }
   return (
     <details className="group relative">
       <summary
@@ -40,14 +50,11 @@ export function CreateDocumentMenu({
           New document
         </p>
         <div className="grid gap-1">
+          {readiness?.isTestWorkspace ? <p className="rounded-md bg-danger px-3 py-2 text-xs font-bold text-white">TEST WORKSPACE · NOT VALID</p> : null}
           {documentTypes.map((documentType) => (
-            <Link
-              key={documentType.type}
-              href={`/app/documents/new?type=${documentType.type}`}
-              className="min-h-11 rounded-lg px-3 text-left text-sm font-semibold text-text hover:bg-hover"
-            >
-              {documentType.label}
-            </Link>
+            documentType.type === "VAT_INVOICE" && readiness && !readiness.vatReady
+              ? <div key={documentType.type} className="rounded-lg px-3 py-2 text-sm text-muted"><span className="font-semibold">VAT Invoice</span><span className="block text-xs">VAT registration is required.</span></div>
+              : <Link key={documentType.type} href={`/app/documents/new?type=${documentType.type}`} className="min-h-11 rounded-lg px-3 text-left text-sm font-semibold text-text hover:bg-hover">{documentType.label}</Link>
           ))}
         </div>
       </div>

@@ -10,13 +10,14 @@ type TaxComponent = { code: string; name: string; rate: string; calculationOrder
 type SavedCalculation = { base?: string; taxableValue?: string; taxTotal?: string; grossTotal?: string; components?: Array<{ code: string; name: string; rate: string; amount: string }> };
 const rounded = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
-export function DraftEditor({ documentId, initial, customers, items, rates, trustedTax }: {
+export function DraftEditor({ documentId, initial, customers, items, rates, trustedTax, isTestDocument = false }: {
   documentId: string | null;
   initial: { type: string; customerId: string | null; customerName: string; currency: string; draftDate: string; dueDate: string; notes: string; lines: Line[]; savedCalculation: SavedCalculation | null };
   customers: Option[];
   items: Array<Option & { description: string | null; unitPrice: string; currency: string }>;
   rates: Array<Option & { type: string; value: string }>;
   trustedTax: { name: string; version: string; components: TaxComponent[] } | null;
+  isTestDocument?: boolean;
 }) {
   const [state, action, pending] = useActionState(saveDraftAction.bind(null, documentId), {} as DraftFormState);
   const [lines, setLines] = useState(initial.lines);
@@ -53,7 +54,7 @@ export function DraftEditor({ documentId, initial, customers, items, rates, trus
   };
   const useVat = documentType === "VAT_INVOICE";
 
-  return <form action={action} className="grid gap-7"><input type="hidden" name="lines" value={JSON.stringify(lines)}/><input type="hidden" name="customerId" value={customerId ?? ""}/>
+  return <form action={action} className="grid gap-7">{isTestDocument ? <div className="rounded-xl border-2 border-danger bg-danger px-5 py-4 text-center text-lg font-black tracking-wide text-white">TEST DOCUMENT — NOT VALID</div> : null}<input type="hidden" name="lines" value={JSON.stringify(lines)}/><input type="hidden" name="customerId" value={customerId ?? ""}/>
     <section className="grid gap-4 rounded-xl border border-border bg-surface p-5 sm:grid-cols-2 sm:p-6"><label className="grid gap-1.5 text-sm font-semibold text-text">Document type<select className={field} name="type" value={documentType} onChange={(event) => { const type = event.target.value; setDocumentType(type); if (type === "VAT_INVOICE") setLines((current) => current.map((line) => ({ ...line, customRateId: null }))); }}><option value="INVOICE">Invoice</option><option value="RECEIPT">Receipt</option><option value="VAT_INVOICE" disabled={!trustedTax}>VAT invoice{trustedTax ? "" : " (tax configuration unavailable)"}</option></select></label><label className="grid gap-1.5 text-sm font-semibold text-text">Draft date<input className={field} type="date" name="draftDate" defaultValue={initial.draftDate} required/></label><label className="grid gap-1.5 text-sm font-semibold text-text">Due date<input className={field} type="date" name="dueDate" defaultValue={initial.dueDate}/></label><label className="grid gap-1.5 text-sm font-semibold text-text">Currency<input className={field} name="currency" defaultValue={initial.currency} maxLength={3} required/></label><label className="grid gap-1.5 text-sm font-semibold text-text sm:col-span-2">Notes<textarea className={`${field} min-h-24 py-3`} name="notes" defaultValue={initial.notes}/></label></section>
     <section className="rounded-xl border border-border bg-surface p-5 sm:p-6"><label className="grid gap-1.5 text-sm font-semibold text-text">Customer name *<input className={field} name="customerName" value={customerName} onChange={(event)=>updateCustomerName(event.target.value)} list="saved-customer-names" maxLength={200} required autoComplete="off"/></label><datalist id="saved-customer-names">{customers.map((saved)=><option value={saved.name} key={saved.id}/>)}</datalist><p className="mt-2 text-sm text-muted">Start typing to reuse a saved customer, or enter a new name.</p></section>
     {useVat && trustedTax ? <section className="border-l-4 border-civ-blue bg-soft-blue p-5 dark:bg-surface-muted"><h2 className="font-bold text-text">{trustedTax.name}</h2><p className="mt-1 text-sm text-muted">Trusted CIV tax treatment · version {trustedTax.version}. Workspace custom rates cannot modify or combine with it.</p><ul className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-text">{trustedTax.components.map((component)=><li key={component.code}><strong>{component.code}</strong> {Number(component.rate)}%</li>)}</ul></section> : <p className="text-sm text-muted">Invoices and receipts may use no rate or an optional workspace Custom Rate on each line.</p>}

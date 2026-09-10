@@ -9,6 +9,7 @@ export const workspaceInputSchema = z.object({
     .trim()
     .min(2, "Workspace name must be at least 2 characters.")
     .max(200, "Workspace name must be 200 characters or fewer."),
+  environment: z.enum(["NORMAL", "TEST"]).default("NORMAL"),
 });
 
 export const workspaceIdSchema = z.string().uuid();
@@ -33,6 +34,7 @@ const optionalEmail = z.preprocess(
 );
 
 export const workspaceSettingsSchema = z.object({
+  type: z.enum(["INDIVIDUAL", "BUSINESS", "ORGANIZATION"]).optional(),
   name: z
     .string()
     .trim()
@@ -51,8 +53,15 @@ export const workspaceSettingsSchema = z.object({
   email: optionalEmail,
   phone: optionalTrimmedText(50),
   address: optionalTrimmedText(1000),
+  legalName: optionalTrimmedText(200).optional(),
+  tradingName: optionalTrimmedText(200).optional(),
+  taxpayerId: optionalTrimmedText(100).optional(),
+  vatRegistered: z
+    .enum(["true", "false"])
+    .transform((value) => value === "true")
+    .optional(),
   registrationNumber: optionalTrimmedText(100),
-  businessTin: optionalTrimmedText(100),
+  businessTin: optionalTrimmedText(100).optional(),
 });
 
 export const workspaceLifecycleConfirmationSchema = z.enum([

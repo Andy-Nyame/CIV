@@ -30,7 +30,7 @@ export function WorkspaceSwitcher({
           >
             {available.map((workspace) => (
               <option key={workspace.id} value={workspace.id}>
-                {workspace.name}
+                {workspace.environment === "TEST" ? `[TEST] ${workspace.name}` : workspace.name}
               </option>
             ))}
           </select>
@@ -41,6 +41,7 @@ export function WorkspaceSwitcher({
       </form>
       <p className="px-1 text-xs text-muted">
         Role: {current.role.charAt(0) + current.role.slice(1).toLowerCase()}
+        {current.environment === "TEST" ? " · TEST" : ""}
       </p>
       <Link
         href="/app/workspaces/new"

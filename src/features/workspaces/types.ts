@@ -3,6 +3,7 @@ export type WorkspaceOption = {
   name: string;
   type: "INDIVIDUAL" | "BUSINESS" | "ORGANIZATION";
   currency: string;
+  environment: "NORMAL" | "TEST";
   role: "OWNER" | "ADMIN" | "MANAGER" | "STAFF";
 };
 
@@ -17,6 +18,7 @@ export type WorkspaceFormState = {
   fieldErrors?: {
     type?: string[];
     name?: string[];
+    environment?: string[];
   };
 };
 

@@ -3,7 +3,6 @@ import "server-only";
 import { CAPABILITIES, getDocumentAccessFilter } from "@/features/authorization/capabilities";
 import { AUDIT_RESOURCE_TYPES } from "@/features/audit/registry";
 import { recordAuditEvent } from "@/features/audit/service";
-import { requireWorkspaceCapabilityInTransaction } from "@/features/business-data/authorization";
 import { BusinessDataConflictError, BusinessDataValidationError } from "@/features/business-data/errors";
 import { businessDataTransactionOptions, lockBusinessResource } from "@/features/business-data/locking";
 import { consumeDocumentCapacityInTransaction } from "@/features/commercial/capacity";
@@ -12,10 +11,12 @@ import { db } from "@/lib/db";
 import { calculateTrustedTax } from "@/features/tax/calculation";
 import { resolveGhanaVatVersion } from "@/features/tax/resolver";
 import { buildTaxSnapshot } from "@/features/tax/snapshot";
+import { authorizeWorkspaceDocumentReadinessInTransaction } from "@/features/workspaces/document-readiness-service";
+import { evaluateWorkspaceDocumentReadiness } from "@/features/workspaces/document-readiness";
 
 import { calculateDraftLine, calculateDraftTotals } from "./calculations";
 import { allocateOfficialDocumentNumber } from "./numbering";
-import { validateIssueReadinessInTransaction, type IssueReadinessError } from "./readiness";
+import { validateIssueReadinessInTransaction, workspaceIssuesForIssuance, type IssueReadinessError } from "./readiness";
 import { buildIssuedDocumentSnapshot, issuedDocumentSnapshotSchema } from "./snapshots";
 import { documentIdSchema } from "./validation";
 
@@ -78,15 +79,10 @@ export async function issueDocument(input: {
     throw new BusinessDataValidationError({ documentId: ["Invalid document."] });
   }
   const documentId = parsedId.data;
-
   return client.$transaction(async (transaction) => {
     await lockBusinessResource(transaction, `document:${documentId}`);
-    const membership = await requireWorkspaceCapabilityInTransaction(
-      transaction,
-      input.actorUserId,
-      input.workspaceId,
-      CAPABILITIES.ISSUE_DOCUMENT,
-    );
+    const authorization = await authorizeWorkspaceDocumentReadinessInTransaction({ actorUserId: input.actorUserId, workspaceId: input.workspaceId, capability: CAPABILITIES.ISSUE_DOCUMENT }, transaction);
+    const membership = authorization.membership;
     const access = getDocumentAccessFilter(membership);
     const existing = access
       ? await transaction.document.findFirst({
@@ -106,6 +102,13 @@ export async function issueDocument(input: {
       throw new DocumentIssueReadinessError([{ code: "UNSUPPORTED_TYPE", message: "This document type cannot be issued yet.", field: "type" }]);
     }
     const documentType = draft.type as "INVOICE" | "RECEIPT" | "VAT_INVOICE";
+    const workspaceReadiness = evaluateWorkspaceDocumentReadiness({ workspace: authorization.workspace, documentType, isSuperAdmin: authorization.isSuperAdmin });
+    if (!workspaceReadiness.ready) {
+      throw new DocumentIssueReadinessError(workspaceIssuesForIssuance(workspaceReadiness.issues));
+    }
+    if (draft.isTestDocument !== workspaceReadiness.isTestWorkspace) {
+      throw new DocumentIssueReadinessError([{ code: "TEST_STATUS_INVALID", message: "The document TEST status does not match its workspace and cannot be changed." }]);
+    }
     let calculatedLines;
     try {
       calculatedLines = draft.lines.map((line) => calculateDraftLine({
@@ -172,7 +175,7 @@ export async function issueDocument(input: {
       actorUserId: input.actorUserId,
       workspaceId: input.workspaceId,
       documentId,
-    });
+    }, authorization);
     if (!readiness.ready) throw new DocumentIssueReadinessError(readiness.errors);
 
     const { documentNumber } = await allocateOfficialDocumentNumber(

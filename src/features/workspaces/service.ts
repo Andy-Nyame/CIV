@@ -13,6 +13,7 @@ import {
 } from "@/features/trials/service";
 import { trialTransactionOptions } from "@/features/trials/locking";
 import { db } from "@/lib/db";
+import { requireSuperAdminUserId } from "@/features/platform-admin/super-admin";
 
 import { workspaceInputSchema } from "./validation";
 
@@ -21,6 +22,7 @@ export class WorkspaceValidationError extends Error {
     readonly fieldErrors: {
       type?: string[];
       name?: string[];
+      environment?: string[];
     },
   ) {
     super("Workspace input is invalid.");
@@ -51,6 +53,9 @@ export async function createWorkspace({
   }
 
   return db.$transaction(async (transaction) => {
+    if (result.data.environment === "TEST") {
+      await requireSuperAdminUserId(userId, transaction);
+    }
     const foundation = await getNewWorkspaceTrialFoundation(transaction);
     if (!foundation.normalPlan) {
       throw new WorkspaceConfigurationError();
@@ -61,11 +66,14 @@ export async function createWorkspace({
       data: {
         name: result.data.name,
         type: result.data.type,
+        environment: result.data.environment,
+        legalName: result.data.name,
       },
       select: {
         id: true,
         name: true,
         type: true,
+        environment: true,
       },
     });
 
@@ -96,6 +104,7 @@ export async function createWorkspace({
       resourceId: workspace.id,
       metadata: {
         workspaceType: workspace.type,
+        workspaceEnvironment: workspace.environment,
         initialPlan: foundation.normalPlan.code,
       },
     });

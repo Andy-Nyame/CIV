@@ -87,6 +87,11 @@ test("customers, catalogue entries, and drafts are isolated, authorized, snapsho
       data: {
         name: `CREATE Workspace ${suffix.slice(0, 8)}`,
         type: "BUSINESS",
+        legalName: `CREATE Workspace ${suffix.slice(0, 8)}`,
+        address: "Accra",
+        taxpayerIdType: "GRA_TIN",
+        taxpayerId: `TIN-${suffix.slice(0, 8)}`,
+        vatRegistered: true,
         memberships: {
           create: [
             { userId: owner.id, role: "OWNER", status: "ACTIVE" },
@@ -103,6 +108,10 @@ test("customers, catalogue entries, and drafts are isolated, authorized, snapsho
       data: {
         name: `CREATE Isolated ${suffix.slice(0, 8)}`,
         type: "BUSINESS",
+        legalName: `CREATE Isolated ${suffix.slice(0, 8)}`,
+        address: "Accra",
+        taxpayerIdType: "GRA_TIN",
+        taxpayerId: `OTHER-${suffix.slice(0, 8)}`,
         memberships: { create: { userId: outsider.id, role: "OWNER", status: "ACTIVE" } },
       },
       select: { id: true },

@@ -5,6 +5,7 @@ import { CAPABILITIES } from "@/features/authorization/capabilities";
 import { requireCapability } from "@/features/authorization/context";
 import { BusinessDataValidationError } from "@/features/business-data/errors";
 import { InsufficientDocumentCapacityError } from "@/features/commercial/errors";
+import { WorkspaceDocumentReadinessError } from "@/features/workspaces/document-readiness";
 import { archiveDraft, createDraft, updateDraft } from "./service";
 import { DocumentIssueConflictError, DocumentIssueReadinessError, issueDocument } from "./issuance";
 
@@ -19,7 +20,11 @@ function parse(form: FormData) {
 }
 export async function saveDraftAction(documentId: string | null, _state: DraftFormState, form: FormData): Promise<DraftFormState> {
   try { const context = await requireCapability(documentId ? CAPABILITIES.UPDATE_DRAFT_DOCUMENT : CAPABILITIES.CREATE_DOCUMENT); const document = documentId ? await updateDraft({ actorUserId: context.user.id, workspaceId: context.workspace.id, documentId, data: parse(form) }) : await createDraft({ actorUserId: context.user.id, workspaceId: context.workspace.id, data: parse(form) }); revalidatePath("/app/documents"); revalidatePath(`/app/documents/${document.id}`); if (!documentId) redirect(`/app/documents/${document.id}`); return { message: "Draft saved." }; }
-  catch (error) { if (error instanceof BusinessDataValidationError) return { message: "Check the draft information and line items.", errors: error.fields }; throw error; }
+  catch (error) {
+    if (error instanceof BusinessDataValidationError) return { message: "Check the draft information and line items.", errors: error.fields };
+    if (error instanceof WorkspaceDocumentReadinessError) return { message: error.message, errors: { workspace: error.issues.map(({ message }) => message) } };
+    throw error;
+  }
 }
 export async function archiveDraftAction(documentId: string) { const context = await requireCapability(CAPABILITIES.UPDATE_DRAFT_DOCUMENT); await archiveDraft({ actorUserId: context.user.id, workspaceId: context.workspace.id, documentId }); revalidatePath("/app/documents"); redirect("/app/documents"); }
 

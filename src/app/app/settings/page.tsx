@@ -6,6 +6,7 @@ import { PageHeading } from "@/components/ui/page-heading";
 import { WorkspaceDangerZone } from "@/components/ui/workspace-danger-zone";
 import { WorkspaceLogoControl } from "@/components/ui/workspace-logo-control";
 import { WorkspaceSettingsForm } from "@/components/ui/workspace-settings-form";
+import { WorkspaceTestModeControl } from "@/components/ui/workspace-test-mode-control";
 import { getWorkspaceSettingsPageData } from "@/features/workspaces/queries";
 
 export const metadata: Metadata = { title: "Workspace Settings" };
@@ -20,8 +21,20 @@ export default async function SettingsPage() {
         description={`Manage ${data.workspace.name} separately from your personal CIV profile.`}
       />
 
+      {data.workspace.environment === "TEST" ? (
+        <div className="mt-5 rounded-xl border-2 border-danger bg-surface p-4 text-danger" role="status">
+          <p className="font-bold">TEST WORKSPACE</p>
+          <p className="mt-1 text-sm">Documents created here are marked TEST DOCUMENT — NOT VALID and can never become official documents.</p>
+        </div>
+      ) : !data.documentReadiness.ready ? (
+        <div className="mt-5 rounded-xl border border-civ-blue bg-active p-4">
+          <p className="font-bold text-text">Complete workspace setup</p>
+          <ul className="mt-2 list-disc pl-5 text-sm text-muted">{data.documentReadiness.issues.map((issue) => <li key={issue.code}>{issue.message}</li>)}</ul>
+        </div>
+      ) : null}
+
       <nav className="mt-7 flex gap-2 overflow-x-auto pb-1" aria-label="Settings sections">
-        {["General", "Business Details", "Branding", "Plan & Storage", "Security", "Danger Zone"].map((label) => (
+        {["General", "Taxpayer Details", "Branding", "Plan & Storage", "Security", "Danger Zone"].map((label) => (
           <a key={label} href={`#${label.toLowerCase().replaceAll(" ", "-").replace("&-", "")}`} className="min-h-10 shrink-0 rounded-lg border border-border px-3 py-2 text-sm font-semibold text-muted hover:bg-hover hover:text-text">
             {label}
           </a>
@@ -30,10 +43,19 @@ export default async function SettingsPage() {
 
       <div id="general" className="mt-8 rounded-xl border border-border bg-surface p-5 sm:p-7">
         <WorkspaceSettingsForm
+          key={data.workspace.id}
           workspace={data.workspace}
           canManage={data.canManageSettings}
         />
       </div>
+
+      {data.isSuperAdmin && data.workspace.environment === "NORMAL" ? (
+        <section className="mt-6 rounded-xl border border-danger/50 bg-surface p-5 sm:p-7" aria-labelledby="test-mode-heading">
+          <h2 id="test-mode-heading" className="text-xl font-bold text-danger">Super Admin test controls</h2>
+          <p className="mt-1 text-sm leading-6 text-muted">Use a separate TEST workspace for development without real taxpayer information. TEST documents are permanently invalid.</p>
+          <WorkspaceTestModeControl />
+        </section>
+      ) : null}
 
       <section id="branding" className="mt-6 rounded-xl border border-border bg-surface p-5 sm:p-7" aria-labelledby="branding-heading">
         <h2 id="branding-heading" className="text-xl font-bold text-text">Branding</h2>

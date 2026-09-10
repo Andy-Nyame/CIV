@@ -27,8 +27,9 @@ import {
   WorkspaceAssetCleanupError,
   WorkspaceLifecycleError,
   WorkspaceSettingsValidationError,
+  WorkspaceTestModeError,
 } from "./settings-errors";
-import { updateWorkspaceSettings } from "./settings-service";
+import { enableWorkspaceTestMode, updateWorkspaceSettings } from "./settings-service";
 import type { WorkspaceSettingsFormState } from "./types";
 import { workspaceLifecycleConfirmationSchema } from "./validation";
 
@@ -47,6 +48,13 @@ function safeSettingsError(error: unknown): WorkspaceSettingsFormState {
       message: error.objectRestoreFailed
         ? "The workspace logo could not be removed safely. Please contact support before trying again."
         : "The workspace logo could not be cleaned up safely.",
+    };
+  }
+  if (error instanceof WorkspaceTestModeError) {
+    return {
+      message: error.reason === "DOCUMENTS_EXIST"
+        ? "TEST mode can only be enabled before a workspace has documents. Create a separate TEST workspace instead."
+        : "Only a CIV Super Admin can enable TEST mode.",
     };
   }
   if (
@@ -71,14 +79,18 @@ export async function updateWorkspaceSettingsAction(
       actorUserId: context.user.id,
       workspaceId: context.workspace.id,
       values: {
+        type: formData.get("type"),
         name: formData.get("name"),
         country: formData.get("country"),
         currency: formData.get("currency"),
         email: formData.get("email"),
         phone: formData.get("phone"),
         address: formData.get("address"),
+        legalName: formData.get("legalName"),
+        tradingName: formData.get("tradingName"),
+        taxpayerId: formData.get("taxpayerId"),
+        vatRegistered: formData.get("vatRegistered"),
         registrationNumber: formData.get("registrationNumber"),
-        businessTin: formData.get("businessTin"),
       },
     });
     revalidatePath("/app", "layout");
@@ -89,6 +101,24 @@ export async function updateWorkspaceSettingsAction(
         ? "Workspace settings saved."
         : "Workspace settings are already up to date.",
     };
+  } catch (error) {
+    return safeSettingsError(error);
+  }
+}
+
+export async function enableWorkspaceTestModeAction(
+  _previousState: WorkspaceSettingsFormState,
+): Promise<WorkspaceSettingsFormState> {
+  void _previousState;
+  try {
+    const context = await requireCapability(CAPABILITIES.MANAGE_WORKSPACE_SETTINGS);
+    await enableWorkspaceTestMode({
+      actorUserId: context.user.id,
+      workspaceId: context.workspace.id,
+    });
+    revalidatePath("/app", "layout");
+    revalidatePath("/app/settings");
+    return { success: true, message: "TEST mode enabled. Documents from this workspace are not valid." };
   } catch (error) {
     return safeSettingsError(error);
   }

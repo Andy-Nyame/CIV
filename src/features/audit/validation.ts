@@ -29,6 +29,7 @@ export const auditMetadataSchemas = {
   WORKSPACE_CREATED: z
     .object({
       workspaceType: z.enum(["INDIVIDUAL", "BUSINESS", "ORGANIZATION"]),
+      workspaceEnvironment: z.enum(["NORMAL", "TEST"]).optional(),
       initialPlan: planCodeSchema,
     })
     .strict(),

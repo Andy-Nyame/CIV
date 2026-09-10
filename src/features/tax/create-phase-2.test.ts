@@ -95,7 +95,7 @@ test("effective trusted tax, custom snapshots, readiness, snapshots, numbering, 
   }
   try {
     const [owner, outsider] = await Promise.all([user("owner"), user("outsider")]);
-    const workspace = await db.workspace.create({ data: { name: `Phase 2 ${suffix.slice(0,8)}`, type: "BUSINESS", businessTin: "CIV-TIN-001", memberships: { create: { userId: owner.id, role: "OWNER", status: "ACTIVE" } } }, select: { id: true } });
+    const workspace = await db.workspace.create({ data: { name: `Phase 2 ${suffix.slice(0,8)}`, type: "BUSINESS", legalName: `Phase 2 ${suffix.slice(0,8)}`, address: "Accra", taxpayerIdType: "GRA_TIN", taxpayerId: "CIV-TIN-001", businessTin: "CIV-TIN-001", vatRegistered: true, memberships: { create: { userId: owner.id, role: "OWNER", status: "ACTIVE" } } }, select: { id: true } });
     const other = await db.workspace.create({ data: { name: `Other ${suffix.slice(0,8)}`, type: "BUSINESS", memberships: { create: { userId: outsider.id, role: "OWNER", status: "ACTIVE" } } }, select: { id: true } });
     workspaceIds.push(workspace.id, other.id);
     const customer = await createCustomer({ actorUserId: owner.id, workspaceId: workspace.id, data: { name: "Tax Customer", email: "tax@example.invalid", phone: "+233200000000", address: "Accra", businessTin: "CUSTOMER-TIN", notes: "" } });
@@ -131,11 +131,11 @@ test("effective trusted tax, custom snapshots, readiness, snapshots, numbering, 
     assert.equal(vat.documentNumber, null);
     await assert.rejects(createDraft({ actorUserId: owner.id, workspaceId: workspace.id, data: { type: "VAT_INVOICE", customerId: customer.id, customerName: customer.name, currency: "USD", draftDate: "2026-08-21", dueDate: null, notes: "", lines: [{ catalogItemId: null, customRateId: null, description: "Invalid currency", quantity: "1", unitPrice: "100" }] } }), BusinessDataValidationError);
 
-    await db.workspace.update({ where: { id: workspace.id }, data: { businessTin: null } });
+    await db.workspace.update({ where: { id: workspace.id }, data: { taxpayerId: null, businessTin: null } });
     const missingTin = await validateIssueReadiness({ actorUserId: owner.id, workspaceId: workspace.id, documentId: vat.id });
     assert.equal(missingTin.ready, false);
-    assert.ok(missingTin.errors.some(({ code }) => code === "ISSUER_TIN_REQUIRED"));
-    await db.workspace.update({ where: { id: workspace.id }, data: { businessTin: "CIV-TIN-001" } });
+    assert.ok(missingTin.errors.some(({ code }) => code === "WORKSPACE_SETUP_INCOMPLETE"));
+    await db.workspace.update({ where: { id: workspace.id }, data: { taxpayerId: "CIV-TIN-001", businessTin: "CIV-TIN-001" } });
     const readiness = await validateIssueReadiness({ actorUserId: owner.id, workspaceId: workspace.id, documentId: vat.id });
     assert.equal(readiness.ready, true);
     const snapshot = await buildFutureDocumentSnapshot({ actorUserId: owner.id, workspaceId: workspace.id, documentId: vat.id });

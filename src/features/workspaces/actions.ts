@@ -30,6 +30,7 @@ export async function createWorkspaceAction(
       input: {
         type: formData.get("type"),
         name: formData.get("name"),
+        environment: formData.get("environment") ?? "NORMAL",
       },
     });
 

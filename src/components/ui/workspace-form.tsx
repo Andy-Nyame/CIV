@@ -12,11 +12,6 @@ const workspaceTypes = [
     description: "For managing your own professional documents.",
   },
   {
-    value: "BUSINESS",
-    label: "Business",
-    description: "For a business or small company.",
-  },
-  {
     value: "ORGANIZATION",
     label: "Organization",
     description: "For an organization or larger team.",
@@ -26,11 +21,13 @@ const workspaceTypes = [
 type WorkspaceFormProps = {
   defaultName?: string;
   submitLabel?: string;
+  canCreateTestWorkspace?: boolean;
 };
 
 export function WorkspaceForm({
   defaultName = "",
   submitLabel = "Create Workspace",
+  canCreateTestWorkspace = false,
 }: WorkspaceFormProps) {
   const [workspaceType, setWorkspaceType] =
     useState<(typeof workspaceTypes)[number]["value"]>("INDIVIDUAL");
@@ -44,11 +41,21 @@ export function WorkspaceForm({
 
   return (
     <form action={formAction} className="grid gap-7" noValidate>
+      {canCreateTestWorkspace ? (
+        <label className="grid gap-2 rounded-xl border border-warning bg-surface-muted p-4 text-sm font-semibold text-text">
+          Workspace environment
+          <select className="min-h-11 rounded-lg border border-border bg-surface px-3" name="environment" defaultValue="NORMAL">
+            <option value="NORMAL">Normal workspace</option>
+            <option value="TEST">TEST workspace — documents are not valid</option>
+          </select>
+          <span className="font-normal text-muted">TEST workspaces bypass taxpayer setup only for CIV Super Admin testing. Every document remains visibly invalid.</span>
+        </label>
+      ) : <input type="hidden" name="environment" value="NORMAL" />}
       <fieldset>
         <legend className="text-base font-semibold text-text">
           How will you use CIV?
         </legend>
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
           {workspaceTypes.map((option) => (
             <label
               key={option.value}

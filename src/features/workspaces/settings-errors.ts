@@ -28,3 +28,10 @@ export class WorkspaceAssetCleanupError extends Error {
     this.name = "WorkspaceAssetCleanupError";
   }
 }
+
+export class WorkspaceTestModeError extends Error {
+  constructor(readonly reason: "SUPER_ADMIN_REQUIRED" | "DOCUMENTS_EXIST" | "ALREADY_TEST") {
+    super("This workspace cannot be enabled for TEST use.");
+    this.name = "WorkspaceTestModeError";
+  }
+}
