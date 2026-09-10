@@ -1,4 +1,5 @@
 import type { IssuedDocumentSnapshot } from "@/features/documents/snapshots";
+import { buildSnapshotAppliedRateRows, formatAppliedRateLabel, type AppliedRateRow } from "@/features/documents/applied-rates";
 
 export type PdfDocumentType = "INVOICE" | "RECEIPT" | "VAT_INVOICE";
 
@@ -34,7 +35,7 @@ export type IssuedDocumentPdfModel = {
     description: string;
     quantity: string;
     unitPrice: string;
-    rateName: string | null;
+    rateLabel: string | null;
     rateAmount: string | null;
     total: string;
   }>;
@@ -43,6 +44,7 @@ export type IssuedDocumentPdfModel = {
     versionCode: string;
     components: Array<{ code: string; name: string; rate: string; amount: string }>;
   } | null;
+  appliedRates: AppliedRateRow[];
   totals: IssuedDocumentSnapshot["totals"];
   notes: string | null;
   issuedBy: string;
@@ -100,7 +102,7 @@ export function buildIssuedDocumentPdfModel(
       description: line.description,
       quantity: line.quantity,
       unitPrice: line.unitPrice,
-      rateName: line.customRate?.name ?? null,
+      rateLabel: line.customRate ? formatAppliedRateLabel({ ...line.customRate, currency: snapshot.document.currency }) : null,
       rateAmount: line.customRate?.amount ?? null,
       total: line.total,
     })),
@@ -114,6 +116,7 @@ export function buildIssuedDocumentPdfModel(
         amount: component.amount,
       })),
     } : null,
+    appliedRates: buildSnapshotAppliedRateRows(snapshot),
     totals: snapshot.totals,
     notes: snapshot.document.notes,
     issuedBy: snapshot.issuedBy.displayName,

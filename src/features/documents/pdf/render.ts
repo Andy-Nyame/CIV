@@ -92,6 +92,18 @@ function amount(currency: string, value: string) {
   return `${currency} ${value}`;
 }
 
+export type PdfTotalRow = { label: string; value: string; emphasis?: boolean };
+
+export function buildPdfTotalRows(model: IssuedDocumentPdfModel): PdfTotalRow[] {
+  return [
+    { label: "Subtotal", value: model.totals.subtotal },
+    ...(model.totals.discount !== "0.00" ? [{ label: "Discount", value: model.totals.discount }] : []),
+    ...model.appliedRates.map((rate) => ({ label: rate.label, value: rate.amount })),
+    ...(model.tax ? [{ label: "Taxable base", value: model.totals.taxableValue }] : []),
+    { label: "Grand total", value: model.totals.grandTotal, emphasis: true },
+  ];
+}
+
 function fitTextSize(value: string, font: PDFFont, preferred: number, minimum: number, maxWidth: number) {
   let size = preferred;
   while (size > minimum && font.widthOfTextAtSize(value, size) > maxWidth) size -= 0.5;
@@ -299,7 +311,7 @@ export async function renderIssuedDocumentPdf(model: IssuedDocumentPdfModel) {
   ensureSpace(50);
   drawTableHeader();
   for (const line of model.lines) {
-    const description = line.rateName ? `${line.description}\nRate: ${line.rateName}` : line.description;
+    const description = line.rateLabel ? `${line.description}\nRate: ${line.rateLabel}` : line.description;
     const descriptionLines = wrapText(description, regular, 8.5, tableWidths[0]! - 12);
     let offset = 0;
     let firstFragment = true;
@@ -338,17 +350,7 @@ export async function renderIssuedDocumentPdf(model: IssuedDocumentPdfModel) {
     }
   }
 
-  const totalRows: Array<{ label: string; value: string; emphasis?: boolean }> = [
-    { label: "Subtotal", value: model.totals.subtotal },
-    ...(model.totals.discount !== "0.00" ? [{ label: "Discount", value: model.totals.discount }] : []),
-    ...(model.totals.customRates !== "0.00" ? [{ label: "Custom rates", value: model.totals.customRates }] : []),
-    ...(model.tax?.components.map((component) => ({
-      label: `${component.name} (${component.rate}%)`,
-      value: component.amount,
-    })) ?? []),
-    ...(model.tax ? [{ label: "Taxable base", value: model.totals.taxableValue }] : []),
-    { label: "Grand total", value: model.totals.grandTotal, emphasis: true },
-  ];
+  const totalRows = buildPdfTotalRows(model);
   const totalsHeight = totalRows.length * 20 + 28;
   ensureSpace(totalsHeight);
   y -= 14;

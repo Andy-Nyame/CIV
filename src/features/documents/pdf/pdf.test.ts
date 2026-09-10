@@ -10,7 +10,7 @@ import { db } from "@/lib/db";
 
 import { issuedDocumentSnapshotSchema, type IssuedDocumentSnapshot } from "../snapshots";
 import { buildDocumentPdfFilename, buildIssuedDocumentPdfModel } from "./model";
-import { renderIssuedDocumentPdf, TEST_WARNING } from "./render";
+import { buildPdfTotalRows, renderIssuedDocumentPdf, TEST_WARNING } from "./render";
 import { DocumentPdfUnavailableError, generateIssuedDocumentPdf, loadIssuedDocumentPdfSource } from "./service";
 
 function snapshotFixture(overrides: {
@@ -20,6 +20,7 @@ function snapshotFixture(overrides: {
   customerId?: string | null;
   lineCount?: number;
   workspaceId?: string;
+  customRate?: { name: string; type: "PERCENTAGE" | "FIXED"; value: string; amount: string };
 } = {}): IssuedDocumentSnapshot {
   const documentId = overrides.documentId ?? randomUUID();
   const type = overrides.type ?? "INVOICE";
@@ -85,17 +86,17 @@ function snapshotFixture(overrides: {
       quantity: "1",
       unitPrice: "100.00",
       subtotal: "100.00",
-      customRate: null,
-      total: "100.00",
+      customRate: overrides.customRate ?? null,
+      total: overrides.customRate ? `${(100 + Number(overrides.customRate.amount)).toFixed(2)}` : "100.00",
     })),
     tax,
     totals: {
       subtotal: "100.00",
       discount: "0.00",
-      customRates: "0.00",
+      customRates: overrides.customRate?.amount ?? "0.00",
       taxableValue: "100.00",
       trustedTax: type === "VAT_INVOICE" ? "20.00" : "0.00",
-      grandTotal: type === "VAT_INVOICE" ? "120.00" : "100.00",
+      grandTotal: type === "VAT_INVOICE" ? "120.00" : overrides.customRate ? `${(100 + Number(overrides.customRate.amount)).toFixed(2)}` : "100.00",
     },
     issuedBy: { userId: randomUUID(), displayName: "Issuing Member" },
     presentation: { template: null, signature: null },
@@ -118,6 +119,27 @@ test("VAT PDF presentation uses the persisted statutory breakdown without recalc
   ]);
   assert.equal(model.totals.trustedTax, "20.00");
   assert.equal(model.totals.grandTotal, "120.00");
+  assert.deepEqual(model.appliedRates.map(({ label, amount }) => [label, amount]), [
+    ["NHIL (2.5%)", "2.50"],
+    ["GETFund Levy (2.5%)", "2.50"],
+    ["VAT (15%)", "15.00"],
+  ]);
+});
+
+test("Invoice and Receipt PDFs show an applied custom snapshot rate and omit unapplied rates", () => {
+  for (const type of ["INVOICE", "RECEIPT"] as const) {
+    const model = buildIssuedDocumentPdfModel(snapshotFixture({
+      type,
+      customRate: { name: "Service Levy", type: "PERCENTAGE", value: "3.000000", amount: "3.00" },
+    }), false);
+    assert.deepEqual(model.appliedRates.map(({ label, amount }) => [label, amount]), [["Service Levy (3%)", "3.00"]]);
+    assert.equal(model.appliedRates.some(({ name }) => name === "Configured but unused"), false);
+    assert.deepEqual(buildPdfTotalRows(model).map(({ label, value }) => [label, value]), [
+      ["Subtotal", "100.00"],
+      ["Service Levy (3%)", "3.00"],
+      ["Grand total", "103.00"],
+    ]);
+  }
 });
 
 test("TEST status is fail-safe when either persisted document flag is true", () => {
@@ -236,7 +258,15 @@ test("PDF source authorization is tenant-safe and reads immutable snapshots only
       });
     }
 
-    const normalSnapshot = snapshotFixture({ customerId: customer.id, workspaceId: workspace.id });
+    const mutableRate = await db.customRate.create({
+      data: { workspaceId: workspace.id, name: "Mutable live rate", type: "PERCENTAGE", value: "8" },
+      select: { id: true },
+    });
+    const normalSnapshot = snapshotFixture({
+      customerId: customer.id,
+      workspaceId: workspace.id,
+      customRate: { name: "Snapshot Service Levy", type: "PERCENTAGE", value: "3.000000", amount: "3.00" },
+    });
     const normalDocument = await persistIssuedDocument({ workspaceId: workspace.id, creatorId: owner.id, isTestDocument: false, snapshot: normalSnapshot, customerId: customer.id });
     const testSnapshot = snapshotFixture({ isTestDocument: true, workspaceId: testWorkspace.id });
     const testDocument = await persistIssuedDocument({ workspaceId: testWorkspace.id, creatorId: superAdmin.id, isTestDocument: true, snapshot: testSnapshot });
@@ -284,10 +314,12 @@ test("PDF source authorization is tenant-safe and reads immutable snapshots only
       const before = await loadIssuedDocumentPdfSource({ actorUserId: owner.id, workspaceId: workspace.id, documentId: normalDocument.id });
       await db.workspace.update({ where: { id: workspace.id }, data: { name: "Changed Live Workspace", legalName: "Changed Live Legal Name", address: "Changed Live Address", taxpayerId: "CHANGED" } });
       await db.customer.update({ where: { id: customer.id }, data: { name: "Changed Live Customer", address: "Changed Live Customer Address" } });
+      await db.customRate.update({ where: { id: mutableRate.id }, data: { name: "Changed Live Rate", value: "12" } });
       const after = await loadIssuedDocumentPdfSource({ actorUserId: owner.id, workspaceId: workspace.id, documentId: normalDocument.id });
       assert.deepEqual(after.model, before.model);
       assert.equal(after.model.issuer.legalName, "Snapshot Legal Name Ltd");
       assert.equal(after.model.customer?.name, "Snapshot Customer");
+      assert.deepEqual(after.model.appliedRates.map(({ label, amount }) => [label, amount]), [["Snapshot Service Levy (3%)", "3.00"]]);
     });
 
     await t.test("TEST PDFs are available only to the Super Admin and cannot lose their marking", async () => {
@@ -306,6 +338,7 @@ test("PDF source authorization is tenant-safe and reads immutable snapshots only
       await db.documentSnapshot.deleteMany({ where: { document: { workspaceId: { in: workspaceIds } } } });
       await db.document.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
       await db.customer.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
+      await db.customRate.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
       await db.membership.deleteMany({ where: { workspaceId: { in: workspaceIds } } });
       await db.workspace.deleteMany({ where: { id: { in: workspaceIds } } });
     }
