@@ -3,16 +3,23 @@ import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 import {
-  Prisma,
   PrismaClient,
-  RateScope,
-  RateType,
 } from "../src/generated/prisma/client";
+import { assertDatabaseEnvironment } from "../scripts/database-environment";
 import {
   CIV_DEFAULT_TRIAL_CONFIGURATION,
   CIV_DOCUMENT_CREDIT_PACK_CATALOG,
   CIV_PLAN_CATALOG,
 } from "../src/features/commercial/catalog";
+import { synchronizeGhanaVat2026ReferenceData } from "./reference-data/ghana-vat-2026";
+
+assertDatabaseEnvironment("development");
+
+if (!process.argv.includes("--confirm-development-seed")) {
+  throw new Error(
+    "Development seed refused. Use the guarded npm run db:seed command.",
+  );
+}
 
 const connectionString = process.env.DIRECT_URL;
 
@@ -28,45 +35,6 @@ const prisma = new PrismaClient({
     timeout: 30_000,
   },
 });
-
-const ghanaTaxComponents = [
-  {
-    code: "NHIL",
-    name: "National Health Insurance Levy",
-    rate: "2.500000",
-    calculationOrder: 10,
-    baseStrategy: "ORIGINAL_BASE",
-    contributesToTaxableValue: true,
-    contributesToTotal: true,
-  },
-  {
-    code: "GETFUND",
-    name: "GETFund Levy",
-    rate: "2.500000",
-    calculationOrder: 20,
-    baseStrategy: "ORIGINAL_BASE",
-    contributesToTaxableValue: true,
-    contributesToTotal: true,
-  },
-  {
-    code: "VAT",
-    name: "Value Added Tax",
-    rate: "15.000000",
-    calculationOrder: 30,
-    baseStrategy: "BASE_PLUS_APPLICABLE_LEVIES",
-    contributesToTaxableValue: false,
-    contributesToTotal: true,
-  },
-  {
-    code: "COVID",
-    name: "COVID-19 Health Recovery Levy",
-    rate: "0.000000",
-    calculationOrder: 40,
-    baseStrategy: "ORIGINAL_BASE",
-    contributesToTaxableValue: false,
-    contributesToTotal: true,
-  },
-] as const;
 
 async function seed() {
   await prisma.$transaction(async (transaction) => {
@@ -119,79 +87,7 @@ async function seed() {
       },
     });
 
-    const taxProfile = await transaction.taxProfile.upsert({
-      where: {
-        jurisdiction_code: {
-          jurisdiction: "GH",
-          code: "STANDARD_VAT",
-        },
-      },
-      update: {
-        name: "Ghana Standard VAT",
-        description: "Versioned Ghana standard VAT profile for CIV.",
-      },
-      create: {
-        jurisdiction: "GH",
-        code: "STANDARD_VAT",
-        name: "Ghana Standard VAT",
-        description: "Versioned Ghana standard VAT profile for CIV.",
-      },
-    });
-
-    const taxVersion = await transaction.taxVersion.upsert({
-      where: {
-        taxProfileId_version: {
-          taxProfileId: taxProfile.id,
-          version: "2026",
-        },
-      },
-      update: {
-        effectiveFrom: new Date("2026-01-01T00:00:00.000Z"),
-        effectiveTo: null,
-        isActive: true,
-      },
-      create: {
-        taxProfileId: taxProfile.id,
-        version: "2026",
-        effectiveFrom: new Date("2026-01-01T00:00:00.000Z"),
-        isActive: true,
-      },
-    });
-
-    for (const component of ghanaTaxComponents) {
-      await transaction.taxComponent.upsert({
-        where: {
-          taxVersionId_code: {
-            taxVersionId: taxVersion.id,
-            code: component.code,
-          },
-        },
-        update: {
-          name: component.name,
-          type: RateType.PERCENTAGE,
-          scope: RateScope.STATUTORY,
-          rate: component.rate,
-          calculationOrder: component.calculationOrder,
-          baseStrategy: component.baseStrategy,
-          contributesToTaxableValue: component.contributesToTaxableValue,
-          contributesToTotal: component.contributesToTotal,
-          baseReference: null,
-          metadata: Prisma.JsonNull,
-        },
-        create: {
-          taxVersionId: taxVersion.id,
-          code: component.code,
-          name: component.name,
-          type: RateType.PERCENTAGE,
-          scope: RateScope.STATUTORY,
-          rate: component.rate,
-          calculationOrder: component.calculationOrder,
-          baseStrategy: component.baseStrategy,
-          contributesToTaxableValue: component.contributesToTaxableValue,
-          contributesToTotal: component.contributesToTotal,
-        },
-      });
-    }
+    await synchronizeGhanaVat2026ReferenceData(transaction);
   });
 }
 

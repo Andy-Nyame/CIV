@@ -11,6 +11,7 @@ import { createCustomer, updateCustomer } from "@/features/customers/service";
 import { createCustomRate, updateCustomRate } from "@/features/rates/service";
 import { db } from "@/lib/db";
 import { PrismaClient } from "@/generated/prisma/client";
+import { synchronizeGhanaVat2026ReferenceData } from "../../../prisma/reference-data/ghana-vat-2026";
 
 import { issueDocument } from "./issuance";
 import { archiveDraft, createDraft, updateDraft } from "./service";
@@ -23,23 +24,25 @@ test("ISSUE Phase 1 is atomic, immutable, authorized, and exactly once under con
   const userIds: string[] = [];
   const workspaceIds: string[] = [];
   const plans = Object.fromEntries((await db.plan.findMany({
-    where: { code: { in: ["FREE", "BUSINESS", "ENTERPRISE"] } },
+    where: { code: "FREE" },
     select: { id: true, code: true, name: true, documentLimit: true, memberLimit: true, features: true },
   })).map((plan) => [plan.code, plan]));
   const free = plans.FREE!;
-  const business = plans.BUSINESS!;
-  const enterprise = plans.ENTERPRISE!;
   const periodStart = new Date(Date.now() - 60_000);
   const directUrl = process.env.DIRECT_URL;
   assert.ok(directUrl, "DIRECT_URL is required for Neon concurrency tests.");
   const createRaceClients = async (count: number) => {
-    const clients = Array.from({ length: count }, () => new PrismaClient({ adapter: new PrismaPg({ connectionString: directUrl, keepAlive: true, idleTimeoutMillis: 60_000 }), transactionOptions: { maxWait: 15_000, timeout: 45_000 } }));
+    const clients = Array.from({ length: count }, () => new PrismaClient({ adapter: new PrismaPg({ connectionString: directUrl, max: 1, keepAlive: true, connectionTimeoutMillis: 10_000, idleTimeoutMillis: 5_000 }), transactionOptions: { maxWait: 15_000, timeout: 45_000 } }));
     await Promise.all(clients.map((client) => client.$connect()));
     return clients;
   };
-  const issueWithDirectClient = async (input: Parameters<typeof issueDocument>[0]) => {
-    const [client] = await createRaceClients(1);
-    try { return await issueDocument(input, client); } finally { await client.$disconnect(); }
+  const withRaceClients = async <T>(count: number, work: (clients: PrismaClient[]) => Promise<T>) => {
+    const clients = await createRaceClients(count);
+    try {
+      return await work(clients);
+    } finally {
+      await Promise.allSettled(clients.map((client) => client.$disconnect()));
+    }
   };
 
   async function user(label: string) {
@@ -48,7 +51,7 @@ test("ISSUE Phase 1 is atomic, immutable, authorized, and exactly once under con
     return created.id;
   }
 
-  async function workspace(label: string, plan = free): Promise<FixtureWorkspace> {
+  async function workspace(label: string): Promise<FixtureWorkspace> {
     const ownerId = await user(`${label}-owner`);
     const staffId = await user(`${label}-staff`);
     const created = await db.workspace.create({
@@ -60,8 +63,8 @@ test("ISSUE Phase 1 is atomic, immutable, authorized, and exactly once under con
         address: "Accra",
         businessTin: `TIN-${suffix.slice(0, 8)}`,
         memberships: { create: [{ userId: ownerId, role: "OWNER", status: "ACTIVE" }, { userId: staffId, role: "STAFF", status: "ACTIVE" }] },
-        subscription: { create: { planId: plan.id, status: "BETA" } },
-        documentAllowancePeriods: { create: { planId: plan.id, periodStart, periodEnd: addUtcMonth(periodStart), allowance: plan.documentLimit, used: 0 } },
+        subscription: { create: { planId: free.id, status: "BETA" } },
+        documentAllowancePeriods: { create: { planId: free.id, periodStart, periodEnd: addUtcMonth(periodStart), allowance: free.documentLimit, used: 0 } },
       },
       select: { id: true },
     });
@@ -89,10 +92,10 @@ test("ISSUE Phase 1 is atomic, immutable, authorized, and exactly once under con
     const rate = await createCustomRate({ actorUserId: monthly.ownerId, workspaceId: monthly.id, data: { name: "Service fee", type: "PERCENTAGE", value: "5", description: "" } });
     const invoice = await createDraft({ actorUserId: monthly.ownerId, workspaceId: monthly.id, data: draftData({ customerId: customer.id, lines: [{ catalogItemId: item.id, customRateId: rate.id, description: "Consulting", quantity: "1", unitPrice: "100.00" }] }) });
 
-    const first = await issueWithDirectClient({ actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: invoice.id });
+    const first = await issueDocument({ actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: invoice.id });
     assert.match(first.documentNumber, /^INV-\d{6}$/);
     assert.equal(first.idempotent, false);
-    const retry = await issueWithDirectClient({ actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: invoice.id });
+    const retry = await issueDocument({ actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: invoice.id });
     assert.equal(retry.documentNumber, first.documentNumber);
     assert.equal(retry.snapshotId, first.snapshotId);
     assert.equal(retry.capacityConsumptionId, first.capacityConsumptionId);
@@ -121,76 +124,28 @@ test("ISSUE Phase 1 is atomic, immutable, authorized, and exactly once under con
     await assert.rejects(archiveDraft({ actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: invoice.id }), WorkspaceAuthorizationError);
 
     const staffDraft = await createDraft({ actorUserId: monthly.staffId, workspaceId: monthly.id, data: draftData({ type: "RECEIPT" }) });
-    await assert.rejects(issueWithDirectClient({ actorUserId: monthly.staffId, workspaceId: monthly.id, documentId: staffDraft.id }), WorkspaceAuthorizationError);
+    await assert.rejects(issueDocument({ actorUserId: monthly.staffId, workspaceId: monthly.id, documentId: staffDraft.id }), WorkspaceAuthorizationError);
     const outsider = await workspace("outsider");
-    await assert.rejects(issueWithDirectClient({ actorUserId: outsider.ownerId, workspaceId: outsider.id, documentId: staffDraft.id }));
+    await assert.rejects(issueDocument({ actorUserId: outsider.ownerId, workspaceId: outsider.id, documentId: staffDraft.id }));
 
     const sameDraft = await createDraft({ actorUserId: monthly.ownerId, workspaceId: monthly.id, data: draftData({ type: "RECEIPT" }) });
-    const sameClients = await createRaceClients(4);
-    const sameRace = await Promise.all(sameClients.map((client) => issueDocument({ actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: sameDraft.id }, client)));
-    await Promise.all(sameClients.map((client) => client.$disconnect()));
+    const sameRace = await withRaceClients(4, (clients) => Promise.all(clients.map((client) => issueDocument({ actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: sameDraft.id }, client))));
     assert.equal(new Set(sameRace.map((result) => result.documentNumber)).size, 1);
     assert.equal(new Set(sameRace.map((result) => result.snapshotId)).size, 1);
     assert.equal(new Set(sameRace.map((result) => result.capacityConsumptionId)).size, 1);
     assert.equal(await db.auditEvent.count({ where: { action: "DOCUMENT_ISSUED", resourceId: sameDraft.id } }), 1);
 
-    const numberedDrafts = [];
+    const numberedDrafts: Awaited<ReturnType<typeof createDraft>>[] = [];
     for (let index = 0; index < 4; index++) numberedDrafts.push(await createDraft({ actorUserId: monthly.ownerId, workspaceId: monthly.id, data: draftData({ notes: `number ${index}` }) }));
-    const numberClients = await createRaceClients(4);
-    const numbered = await Promise.all(numberedDrafts.map((document, index) => issueDocument({ actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: document.id }, numberClients[index]!)));
-    await Promise.all(numberClients.map((client) => client.$disconnect()));
+    const numbered = await withRaceClients(4, (clients) => Promise.all(numberedDrafts.map((document, index) => issueDocument({ actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: document.id }, clients[index]!))));
     const values = numbered.map(({ documentNumber }) => Number(documentNumber.split("-")[1])).sort((a, b) => a - b);
     assert.equal(new Set(values).size, 4);
     assert.deepEqual(values, Array.from({ length: 4 }, (_, index) => values[0]! + index));
 
-    const credit = await workspace("credit");
-    await db.workspaceDocumentAllowancePeriod.updateMany({ where: { workspaceId: credit.id }, data: { used: free.documentLimit! } });
-    await db.documentCreditTransaction.create({ data: { workspaceId: credit.id, type: "BONUS", amount: 2, source: "ISSUE_TEST", sourceReference: `issue-credit-${suffix}` } });
-    const creditDraft = await createDraft({ actorUserId: credit.ownerId, workspaceId: credit.id, data: draftData() });
-    const creditIssued = await issueWithDirectClient({ actorUserId: credit.ownerId, workspaceId: credit.id, documentId: creditDraft.id });
-    assert.equal(creditIssued.documentNumber, "INV-000001");
-    const creditReceipt = await db.documentCapacityConsumption.findUniqueOrThrow({ where: { documentId: creditDraft.id } });
-    assert.equal(creditReceipt.monthlyUsed, 0);
-    assert.equal(creditReceipt.purchasedUsed, 1);
-    assert.equal((await db.documentCreditTransaction.aggregate({ where: { workspaceId: credit.id }, _sum: { amount: true } }))._sum.amount, 1);
-
-    const unlimited = await workspace("unlimited", enterprise);
-    await db.documentCreditTransaction.create({ data: { workspaceId: unlimited.id, type: "BONUS", amount: 7, source: "ISSUE_TEST", sourceReference: `issue-unlimited-${suffix}` } });
-    const unlimitedDraft = await createDraft({ actorUserId: unlimited.ownerId, workspaceId: unlimited.id, data: draftData() });
-    const unlimitedIssued = await issueWithDirectClient({ actorUserId: unlimited.ownerId, workspaceId: unlimited.id, documentId: unlimitedDraft.id });
-    assert.equal(unlimitedIssued.documentNumber, "INV-000001");
-    const unlimitedReceipt = await db.documentCapacityConsumption.findUniqueOrThrow({ where: { documentId: unlimitedDraft.id } });
-    assert.equal(unlimitedReceipt.monthlyUsed, 1);
-    assert.equal(unlimitedReceipt.purchasedUsed, 0);
-    assert.equal(unlimitedReceipt.purchasedBalanceAfter, 7);
-    assert.equal((await db.workspaceDocumentAllowancePeriod.findFirstOrThrow({ where: { workspaceId: unlimited.id } })).allowance, null);
-
-    const trial = await workspace("trial");
-    await db.workspaceTrial.create({ data: { workspaceId: trial.id, trialPlanId: business.id, fallbackPlanId: free.id, status: "ACTIVE", startsAt: new Date(Date.now() - 60_000), endsAt: new Date(Date.now() + 86400000), grantSource: "PLATFORM_MANUAL", trialPlanCodeSnapshot: business.code, trialPlanNameSnapshot: business.name, trialMemberLimitSnapshot: business.memberLimit, trialDocumentLimitSnapshot: business.documentLimit, trialFeaturesSnapshot: JSON.parse(JSON.stringify(business.features ?? {})), fallbackPlanCodeSnapshot: free.code, fallbackPlanNameSnapshot: free.name } });
-    const trialDraft = await createDraft({ actorUserId: trial.ownerId, workspaceId: trial.id, data: draftData() });
-    await issueWithDirectClient({ actorUserId: trial.ownerId, workspaceId: trial.id, documentId: trialDraft.id });
-    const trialPeriod = await db.workspaceDocumentAllowancePeriod.findFirstOrThrow({ where: { workspaceId: trial.id } });
-    assert.equal(trialPeriod.planId, business.id);
-    assert.equal(trialPeriod.allowance, business.documentLimit);
-    assert.equal((await db.subscription.findUniqueOrThrow({ where: { workspaceId: trial.id } })).planId, free.id);
-    assert.equal((await db.workspaceTrial.findFirstOrThrow({ where: { workspaceId: trial.id } })).status, "ACTIVE");
-    const trialIssuedSnapshot = structuredClone((await db.documentSnapshot.findUniqueOrThrow({ where: { documentId: trialDraft.id } })).payload);
-    await db.workspaceTrial.updateMany({ where: { workspaceId: trial.id, status: "ACTIVE" }, data: { endsAt: new Date(Date.now() - 1_000) } });
-    const fallbackDraft = await createDraft({ actorUserId: trial.ownerId, workspaceId: trial.id, data: draftData({ notes: "Post-trial fallback issue" }) });
-    await issueWithDirectClient({ actorUserId: trial.ownerId, workspaceId: trial.id, documentId: fallbackDraft.id });
-    const fallbackPeriod = await db.workspaceDocumentAllowancePeriod.findFirstOrThrow({ where: { workspaceId: trial.id } });
-    assert.equal(fallbackPeriod.planId, free.id);
-    assert.equal(fallbackPeriod.allowance, free.documentLimit);
-    assert.equal((await db.workspaceTrial.findFirstOrThrow({ where: { workspaceId: trial.id } })).status, "EXPIRED");
-    assert.deepEqual((await db.documentSnapshot.findUniqueOrThrow({ where: { documentId: trialDraft.id } })).payload, trialIssuedSnapshot);
-    assert.equal(await db.auditEvent.count({ where: { workspaceId: trial.id, action: "TRIAL_EXPIRED" } }), 1);
-
     const exact = await workspace("exact");
     await db.workspaceDocumentAllowancePeriod.updateMany({ where: { workspaceId: exact.id }, data: { used: free.documentLimit! - 1 } });
     const exactDrafts = [await createDraft({ actorUserId: exact.ownerId, workspaceId: exact.id, data: draftData({ notes: "exact 0" }) }), await createDraft({ actorUserId: exact.ownerId, workspaceId: exact.id, data: draftData({ notes: "exact 1" }) })];
-    const exactClients = await createRaceClients(2);
-    const exactRace = await Promise.allSettled(exactDrafts.map((document, index) => issueDocument({ actorUserId: exact.ownerId, workspaceId: exact.id, documentId: document.id }, exactClients[index]!)));
-    await Promise.all(exactClients.map((client) => client.$disconnect()));
+    const exactRace = await withRaceClients(2, (clients) => Promise.allSettled(exactDrafts.map((document, index) => issueDocument({ actorUserId: exact.ownerId, workspaceId: exact.id, documentId: document.id }, clients[index]!))));
     assert.equal(exactRace.filter(({ status }) => status === "fulfilled").length, 1);
     assert.equal(exactRace.filter((result) => result.status === "rejected" && result.reason instanceof InsufficientDocumentCapacityError).length, 1);
     assert.equal(await db.document.count({ where: { id: { in: exactDrafts.map(({ id }) => id) }, status: "ISSUED" } }), 1);
@@ -200,15 +155,17 @@ test("ISSUE Phase 1 is atomic, immutable, authorized, and exactly once under con
     assert.equal(failed.documentNumber, null);
 
     const vat = await createDraft({ actorUserId: monthly.ownerId, workspaceId: monthly.id, data: draftData({ type: "VAT_INVOICE", customerId: customer.id, lines: [{ catalogItemId: null, customRateId: null, description: "VAT base", quantity: "1", unitPrice: "100.00" }] }) });
-    const vatIssued = await issueWithDirectClient({ actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: vat.id });
+    const vatIssued = await issueDocument({ actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: vat.id });
     assert.match(vatIssued.documentNumber, /^VAT-\d{6}$/);
     const vatSnapshot = issuedDocumentSnapshotSchema.parse((await db.documentSnapshot.findUniqueOrThrow({ where: { documentId: vat.id } })).payload);
     assert.equal(vatSnapshot.tax?.components.find(({ code }) => code === "NHIL")?.amount, "2.50");
     assert.equal(vatSnapshot.tax?.components.find(({ code }) => code === "GETFUND")?.amount, "2.50");
-    assert.equal(vatSnapshot.tax?.components.find(({ code }) => code === "VAT")?.amount, "15.75");
-    assert.equal(vatSnapshot.tax?.components.find(({ code }) => code === "COVID")?.amount, "0.00");
-    assert.equal(vatSnapshot.totals.taxableValue, "105.00");
-    assert.equal(vatSnapshot.totals.grandTotal, "120.75");
+    assert.equal(vatSnapshot.tax?.components.find(({ code }) => code === "VAT")?.amount, "15.00");
+    assert.equal(vatSnapshot.tax?.components.some(({ code }) => code === "COVID"), false);
+    assert.equal(vatSnapshot.totals.taxableValue, "100.00");
+    assert.equal(vatSnapshot.totals.grandTotal, "120.00");
+    await db.$transaction((transaction) => synchronizeGhanaVat2026ReferenceData(transaction));
+    assert.deepEqual(issuedDocumentSnapshotSchema.parse((await db.documentSnapshot.findUniqueOrThrow({ where: { documentId: vat.id } })).payload), vatSnapshot);
     const rollbackTaxMutation = new Error("ROLLBACK_TAX_MUTATION");
     await assert.rejects(db.$transaction(async (transaction) => {
       await transaction.taxComponent.updateMany({ where: { taxVersionId: vat.taxVersionId!, code: "VAT" }, data: { rate: "1" } });

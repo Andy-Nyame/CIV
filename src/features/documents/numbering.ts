@@ -1,6 +1,6 @@
 import "server-only";
 
-import { Prisma, type DocumentType } from "@/generated/prisma/client";
+import { type DocumentType, type Prisma } from "@/generated/prisma/client";
 
 const PREFIXES: Partial<Record<DocumentType, string>> = {
   INVOICE: "INV",
@@ -20,18 +20,14 @@ export async function allocateOfficialDocumentNumber(
   const prefix = PREFIXES[documentType];
   if (!prefix) throw new Error("This document type does not support official numbering.");
 
-  const [sequence] = await transaction.$queryRaw<Array<{ currentValue: bigint }>>(Prisma.sql`
-    INSERT INTO "DocumentNumberSequence" (
-      "id", "workspaceId", "documentType", "currentValue", "createdAt", "updatedAt"
-    ) VALUES (
-      gen_random_uuid(), ${workspaceId}::uuid, ${documentType}::"DocumentType", 1, NOW(), NOW()
-    )
-    ON CONFLICT ("workspaceId", "documentType")
-    DO UPDATE SET "currentValue" = "DocumentNumberSequence"."currentValue" + 1,
-                  "updatedAt" = NOW()
-    RETURNING "currentValue"
-  `);
-  if (!sequence) throw new Error("Unable to allocate an official document number.");
+  const sequence = await transaction.documentNumberSequence.upsert({
+    where: {
+      workspaceId_documentType: { workspaceId, documentType },
+    },
+    create: { workspaceId, documentType, currentValue: BigInt(1) },
+    update: { currentValue: { increment: 1 } },
+    select: { currentValue: true },
+  });
   return {
     sequence: sequence.currentValue,
     documentNumber: `${prefix}-${sequence.currentValue.toString().padStart(6, "0")}`,

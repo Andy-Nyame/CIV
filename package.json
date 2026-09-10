@@ -9,6 +9,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "test:all": "npm run db:check:dev && node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test --test-concurrency=1 scripts/*.test.ts src/features/**/*.test.ts",
+    "verify": "npm run db:check:dev && npm run db:status:dev && npm run db:validate && npm run db:generate && npm run lint && npm run typecheck && npm run test:all && npm run build",
     "test:authorization": "node --loader ./scripts/server-only-loader.mjs --import tsx --test src/features/authorization/*.test.ts src/features/team/*.test.ts",
     "test:profile": "node --import tsx --test src/features/profile/profile.test.ts",
     "test:storage": "node --env-file=.env --loader ./scripts/server-only-loader.mjs --import tsx --test src/lib/storage/*.test.ts src/features/profile/storage.test.ts",
@@ -47,6 +49,7 @@
     "db:validate": "prisma validate",
     "db:check:dev": "node --import tsx scripts/check-database-environment.ts development",
     "db:check:prod": "node --import tsx scripts/check-database-environment.ts production",
+    "db:status:dev": "npm run db:check:dev && node --env-file=.env --import tsx scripts/check-development-migration-status.ts",
     "db:migrate": "npm run db:migrate:dev",
     "db:migrate:dev": "npm run db:check:dev && prisma migrate dev",
     "db:migrate:deploy": "npm run db:check:prod && prisma migrate deploy",
@@ -60,15 +63,15 @@
     "@auth/prisma-adapter": "^2.11.3",
     "@aws-sdk/client-s3": "^3.1108.0",
     "@node-rs/argon2": "^2.0.2",
-    "@prisma/adapter-pg": "^7.9.1",
-    "@prisma/client": "^7.9.1",
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
     "dotenv": "^17.4.2",
-    "next": "16.3.0",
+    "next": "16.3.4",
     "next-auth": "^5.0.0-beta.32",
     "pg": "^8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.4",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -78,10 +81,14 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.3.0",
-    "prisma": "^7.9.1",
+    "eslint-config-next": "16.3.4",
+    "prisma": "^7.10.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.12",
     "typescript": "^5"
+  },
+  "overrides": {
+    "fast-uri": "3.1.6",
+    "mysql2": "3.23.1"
   }
 }

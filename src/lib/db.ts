@@ -22,7 +22,12 @@ function createPrismaClient() {
     throw new Error("DATABASE_URL is required to initialize Prisma Client.");
   }
 
-  const adapter = new PrismaPg({ connectionString });
+  const adapter = new PrismaPg({
+    connectionString,
+    connectionTimeoutMillis: 10_000,
+    idleTimeoutMillis: 5_000,
+    allowExitOnIdle: process.env.NODE_ENV !== "production",
+  });
   return new PrismaClient({ adapter });
 }
 

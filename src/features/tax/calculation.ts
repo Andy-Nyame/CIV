@@ -31,12 +31,26 @@ export function calculateTrustedTax(baseInput: string | Prisma.Decimal, componen
 
 export function assertGhanaVatStructure(components: TrustedTaxComponent[]) {
   const byCode = new Map(components.map((component) => [component.code, component]));
-  const required = ["NHIL", "GETFUND", "VAT", "COVID"];
-  if (required.some((code) => !byCode.has(code))) throw new Error("Ghana VAT configuration is incomplete.");
-  if (byCode.get("NHIL")!.baseStrategy !== "ORIGINAL_BASE" || !byCode.get("NHIL")!.contributesToTaxableValue) throw new Error("NHIL configuration is invalid.");
-  if (byCode.get("GETFUND")!.baseStrategy !== "ORIGINAL_BASE" || !byCode.get("GETFUND")!.contributesToTaxableValue) throw new Error("GETFund configuration is invalid.");
-  if (byCode.get("VAT")!.baseStrategy !== "BASE_PLUS_APPLICABLE_LEVIES") throw new Error("VAT configuration is invalid.");
-  if (!new Prisma.Decimal(byCode.get("NHIL")!.rate).eq("2.5") || !new Prisma.Decimal(byCode.get("GETFUND")!.rate).eq("2.5") || !new Prisma.Decimal(byCode.get("VAT")!.rate).eq("15") || !new Prisma.Decimal(byCode.get("COVID")!.rate).eq(0)) throw new Error("Ghana VAT rates do not match the approved trusted configuration.");
-  if (!byCode.get("VAT")!.contributesToTotal || byCode.get("VAT")!.contributesToTaxableValue || !byCode.get("COVID")!.contributesToTotal) throw new Error("Ghana VAT contribution rules are invalid.");
+  const required = ["NHIL", "GETFUND", "VAT"];
+  if (components.length !== required.length || required.some((code) => !byCode.has(code))) {
+    throw new Error("Ghana VAT configuration must contain only NHIL, GETFund, and VAT.");
+  }
+  for (const code of required) {
+    const component = byCode.get(code)!;
+    if (
+      component.baseStrategy !== "ORIGINAL_BASE" ||
+      component.contributesToTaxableValue ||
+      !component.contributesToTotal
+    ) {
+      throw new Error(`${code} configuration is invalid.`);
+    }
+  }
+  if (
+    !new Prisma.Decimal(byCode.get("NHIL")!.rate).eq("2.5") ||
+    !new Prisma.Decimal(byCode.get("GETFUND")!.rate).eq("2.5") ||
+    !new Prisma.Decimal(byCode.get("VAT")!.rate).eq("15")
+  ) {
+    throw new Error("Ghana VAT rates do not match the approved 2026 configuration.");
+  }
   return components;
 }

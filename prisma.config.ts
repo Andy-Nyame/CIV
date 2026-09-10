@@ -12,7 +12,7 @@ export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
-    seed: "node --import tsx prisma/seed.ts",
+    seed: "node --import tsx prisma/seed.ts --confirm-development-seed",
   },
   datasource: {
     url: directUrl,

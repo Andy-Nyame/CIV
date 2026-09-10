@@ -9,7 +9,7 @@ import { businessDataTransactionOptions, lockBusinessResource } from "@/features
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { calculateTrustedTax } from "@/features/tax/calculation";
-import { resolveGhanaVatVersion } from "@/features/tax/resolver";
+import { resolveDocumentTaxVersion } from "@/features/tax/resolver";
 import { buildTaxSnapshot } from "@/features/tax/snapshot";
 import { calculateDraftLine, calculateDraftTotals } from "./calculations";
 import { documentIdSchema, draftInputSchema } from "./validation";
@@ -25,10 +25,10 @@ async function prepareLines(
 ) {
   const catalogueIds = [...new Set(lines.flatMap((line) => line.catalogItemId ? [line.catalogItemId] : []))];
   const rateIds = [...new Set(lines.flatMap((line) => line.customRateId ? [line.customRateId] : []))];
-  const [items, rates] = await Promise.all([
-    tx.itemService.findMany({ where: { id: { in: catalogueIds }, workspaceId, OR: [{ archivedAt: null }, { id: { in: [...existingReferences.catalogueItemIds] } }] } }),
-    tx.customRate.findMany({ where: { id: { in: rateIds }, workspaceId, OR: [{ isActive: true }, { id: { in: [...existingReferences.rateIds] } }] } }),
-  ]);
+  // Interactive transactions use one checked-out pg client. Keep its queries
+  // sequential so node-postgres never receives overlapping client.query calls.
+  const items = await tx.itemService.findMany({ where: { id: { in: catalogueIds }, workspaceId, OR: [{ archivedAt: null }, { id: { in: [...existingReferences.catalogueItemIds] } }] } });
+  const rates = await tx.customRate.findMany({ where: { id: { in: rateIds }, workspaceId, OR: [{ isActive: true }, { id: { in: [...existingReferences.rateIds] } }] } });
   if (items.length !== catalogueIds.length) throw new BusinessDataValidationError({ lines: ["A selected catalogue item is unavailable."] });
   const itemIds = new Set(items.map(({ id }) => id)); const itemMap = new Map(items.map((item) => [item.id, item])); const rateMap = new Map(rates.map((rate) => [rate.id, rate]));
   const prepared = lines.map((line, index) => {
@@ -47,8 +47,8 @@ async function prepareLines(
 }
 
 async function prepareDocumentCalculation(tx: Prisma.TransactionClient, parsed: ReturnType<typeof draftInputSchema.parse>, totals: Awaited<ReturnType<typeof prepareLines>>["totals"]) {
-  if (parsed.type !== "VAT_INVOICE") return { taxVersionId: null, taxableValue: totals.subtotal, taxTotal: new Prisma.Decimal(0), taxCalculation: Prisma.JsonNull, ...totals };
-  const version = await resolveGhanaVatVersion(parsed.draftDate, tx);
+  const version = await resolveDocumentTaxVersion(parsed.type, parsed.draftDate, tx);
+  if (!version) return { taxVersionId: null, taxableValue: totals.subtotal, taxTotal: new Prisma.Decimal(0), taxCalculation: Prisma.JsonNull, ...totals };
   const calculation = calculateTrustedTax(totals.subtotal, version.components);
   const snapshot = buildTaxSnapshot(version, calculation);
   return { taxVersionId: version.id, subtotal: totals.subtotal, discountTotal: new Prisma.Decimal(0), rateTotal: new Prisma.Decimal(0), taxableValue: new Prisma.Decimal(calculation.taxableValue), taxTotal: new Prisma.Decimal(calculation.taxTotal), grandTotal: new Prisma.Decimal(calculation.grossTotal), taxCalculation: snapshot as unknown as Prisma.InputJsonValue };

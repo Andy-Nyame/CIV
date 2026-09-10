@@ -20,6 +20,21 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Development verification
+
+Configure an ignored `.env` with the Development Neon URLs described in
+`docs/database-environments.md`, then run:
+
+```bash
+npm run verify
+```
+
+The command fails closed unless the database guard accepts the Development
+target. It checks migration alignment without applying migrations, validates and
+generates the Prisma client, runs lint, type checking, the serial automated test
+suite, and a production build. Database integration tests create isolated
+Development-only fixtures and remove them during normal cleanup.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

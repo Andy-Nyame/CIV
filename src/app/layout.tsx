@@ -16,7 +16,23 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+function resolveMetadataBase() {
+  const configuredUrl = process.env.APP_URL;
+  if (!configuredUrl) {
+    if (process.env.APP_ENV === "production") {
+      throw new Error("APP_URL is required to build CIV for production.");
+    }
+    return new URL("http://localhost:3000");
+  }
+  const url = new URL(configuredUrl);
+  if (process.env.APP_ENV === "production" && url.protocol !== "https:") {
+    throw new Error("Production APP_URL must use HTTPS.");
+  }
+  return url;
+}
+
 export const metadata: Metadata = {
+  metadataBase: resolveMetadataBase(),
   applicationName: "CIV",
   title: {
     default: "CIV — Create. Issue. Verify.",

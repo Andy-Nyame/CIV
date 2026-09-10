@@ -14,40 +14,74 @@ import { createCustomRate, updateCustomRate } from "@/features/rates/service";
 import { PrismaClient } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 
-import { calculateTrustedTax } from "./calculation";
-import { calculateDraftLine } from "@/features/documents/calculations";
-import { resolveGhanaVatVersion } from "./resolver";
+import { assertGhanaVatStructure, calculateTrustedTax } from "./calculation";
+import { calculateDraftLine, calculateDraftTotals } from "@/features/documents/calculations";
+import { draftInputSchema } from "@/features/documents/validation";
+import { resolveDocumentTaxVersion, resolveGhanaVatVersion } from "./resolver";
 import type { TrustedTaxComponent } from "./types";
 
 const components: TrustedTaxComponent[] = [
-  { code: "NHIL", name: "National Health Insurance Levy", rate: "2.5", calculationOrder: 10, baseStrategy: "ORIGINAL_BASE", contributesToTaxableValue: true, contributesToTotal: true },
-  { code: "GETFUND", name: "GETFund Levy", rate: "2.5", calculationOrder: 20, baseStrategy: "ORIGINAL_BASE", contributesToTaxableValue: true, contributesToTotal: true },
-  { code: "VAT", name: "Value Added Tax", rate: "15", calculationOrder: 30, baseStrategy: "BASE_PLUS_APPLICABLE_LEVIES", contributesToTaxableValue: false, contributesToTotal: true },
-  { code: "COVID", name: "COVID-19 Health Recovery Levy", rate: "0", calculationOrder: 40, baseStrategy: "ORIGINAL_BASE", contributesToTaxableValue: false, contributesToTotal: true },
+  { code: "NHIL", name: "National Health Insurance Levy", rate: "2.5", calculationOrder: 10, baseStrategy: "ORIGINAL_BASE", contributesToTaxableValue: false, contributesToTotal: true },
+  { code: "GETFUND", name: "GETFund Levy", rate: "2.5", calculationOrder: 20, baseStrategy: "ORIGINAL_BASE", contributesToTaxableValue: false, contributesToTotal: true },
+  { code: "VAT", name: "Value Added Tax", rate: "15", calculationOrder: 30, baseStrategy: "ORIGINAL_BASE", contributesToTaxableValue: false, contributesToTotal: true },
 ];
 
-test("approved Ghana VAT sequence and GHS rounding are exact", () => {
+test("approved Ghana 2026 VAT structure and GHS rounding are exact", () => {
+  assert.equal(assertGhanaVatStructure(components), components);
   for (const [base, expected] of [
-    ["100.00", { nhil: "2.50", getfund: "2.50", taxable: "105.00", vat: "15.75", gross: "120.75" }],
-    ["1000.00", { nhil: "25.00", getfund: "25.00", taxable: "1050.00", vat: "157.50", gross: "1207.50" }],
+    ["100.00", { nhil: "2.50", getfund: "2.50", taxable: "100.00", vat: "15.00", gross: "120.00" }],
+    ["1000.00", { nhil: "25.00", getfund: "25.00", taxable: "1000.00", vat: "150.00", gross: "1200.00" }],
   ] as const) {
     const result = calculateTrustedTax(base, components);
     assert.equal(result.components.find(({ code }) => code === "NHIL")?.amount, expected.nhil);
     assert.equal(result.components.find(({ code }) => code === "GETFUND")?.amount, expected.getfund);
     assert.equal(result.taxableValue, expected.taxable);
     assert.equal(result.components.find(({ code }) => code === "VAT")?.amount, expected.vat);
-    assert.equal(result.components.find(({ code }) => code === "COVID")?.amount, "0.00");
     assert.equal(result.grossTotal, expected.gross);
   }
   const pesewa = calculateTrustedTax("99.99", components);
-  assert.deepEqual(pesewa.components.map(({ amount }) => amount), ["2.50", "2.50", "15.75", "0.00"]);
-  assert.equal(pesewa.grossTotal, "120.74");
+  assert.deepEqual(pesewa.components.map(({ amount }) => amount), ["2.50", "2.50", "15.00"]);
+  assert.equal(pesewa.grossTotal, "119.99");
+  const fractional = calculateTrustedTax("12.34", components);
+  assert.deepEqual(fractional.components.map(({ amount }) => amount), ["0.31", "0.31", "1.85"]);
+  assert.equal(fractional.grossTotal, "14.81");
   assert.equal(calculateTrustedTax("0.01", components).grossTotal, "0.01");
   assert.throws(() => calculateTrustedTax("-0.01", components));
   assert.throws(() => calculateTrustedTax("100", [...components, components[0]!]));
-  assert.equal(calculateDraftLine({ description: "Custom", quantity: "1", unitPrice: "100", rate: { type: "PERCENTAGE", value: "5" } }).rateTotal.toFixed(2), "5.00");
+  assert.throws(() => assertGhanaVatStructure([...components, { code: "COVID", name: "COVID-19 Health Recovery Levy", rate: "0", calculationOrder: 40, baseStrategy: "ORIGINAL_BASE", contributesToTaxableValue: false, contributesToTotal: true }]));
+
+  const custom = calculateDraftLine({ description: "Custom", quantity: "1", unitPrice: "100", rate: { type: "PERCENTAGE", value: "5" } });
+  assert.equal(custom.rateTotal.toFixed(2), "5.00");
   assert.equal(calculateDraftLine({ description: "Rounded", quantity: "1", unitPrice: "99.99", rate: { type: "PERCENTAGE", value: "2.5" } }).rateTotal.toFixed(2), "2.50");
   assert.equal(calculateDraftLine({ description: "Fixed", quantity: "3", unitPrice: "1", rate: { type: "FIXED", value: "0.10" } }).rateTotal.toFixed(2), "0.10");
+
+  const multipleLines = calculateDraftTotals([
+    calculateDraftLine({ description: "First", quantity: "2", unitPrice: "19.99", rate: null }),
+    calculateDraftLine({ description: "Second", quantity: "1", unitPrice: "10.01", rate: null }),
+  ]);
+  assert.equal(multipleLines.subtotal.toFixed(2), "49.99");
+  assert.equal(multipleLines.discountTotal.toFixed(2), "0.00");
+  assert.equal(calculateTrustedTax(multipleLines.subtotal, components).grossTotal, "59.99");
+
+  const vatWithCustomRate = draftInputSchema.safeParse({
+    type: "VAT_INVOICE",
+    customerId: null,
+    currency: "GHS",
+    draftDate: "2026-08-21",
+    dueDate: null,
+    notes: "",
+    lines: [{ catalogItemId: null, customRateId: "00000000-0000-4000-8000-000000000001", description: "Invalid combination", quantity: "1", unitPrice: "100.00" }],
+  });
+  assert.equal(vatWithCustomRate.success, false);
+});
+
+test("non-VAT document types do not resolve Ghana VAT reference data", async () => {
+  const unavailableClient = new Proxy({}, {
+    get() { throw new Error("Tax data must not be queried."); },
+  });
+  assert.equal(await resolveDocumentTaxVersion("INVOICE", "2026-08-21", unavailableClient as never), null);
+  assert.equal(await resolveDocumentTaxVersion("RECEIPT", "2026-08-21", unavailableClient as never), null);
+  await assert.rejects(resolveDocumentTaxVersion("VAT_INVOICE", "2026-08-21", unavailableClient as never));
 });
 
 test("effective trusted tax, custom snapshots, readiness, snapshots, numbering, isolation, and zero consumption hold in development Neon", async () => {
@@ -71,7 +105,7 @@ test("effective trusted tax, custom snapshots, readiness, snapshots, numbering, 
 
     const taxVersion = await resolveGhanaVatVersion("2026-08-21");
     assert.equal(taxVersion.profile.code, "STANDARD_VAT");
-    assert.deepEqual(taxVersion.components.map(({ code }) => code), ["NHIL", "GETFUND", "VAT", "COVID"]);
+    assert.deepEqual(taxVersion.components.map(({ code }) => code), ["NHIL", "GETFUND", "VAT"]);
     await assert.rejects(resolveGhanaVatVersion("2025-12-31"));
     const profile = await db.taxProfile.findUniqueOrThrow({ where: { jurisdiction_code: { jurisdiction: "GH", code: "STANDARD_VAT" } } });
     await assert.rejects(db.taxVersion.create({ data: { taxProfileId: profile.id, version: `OVERLAP-${suffix}`, effectiveFrom: new Date("2026-06-01"), effectiveTo: new Date("2026-12-31"), isActive: true } }));
@@ -90,9 +124,9 @@ test("effective trusted tax, custom snapshots, readiness, snapshots, numbering, 
 
     const vat = await createDraft({ actorUserId: owner.id, workspaceId: workspace.id, data: { type: "VAT_INVOICE", customerId: customer.id, currency: "GHS", draftDate: "2026-08-21", dueDate: "2026-09-01", notes: "Trusted tax", forgedTaxRate: "1", lines: [{ catalogItemId: null, customRateId: null, description: "Taxable service", quantity: "1", unitPrice: "100.00" }] } });
     assert.equal(vat.taxVersionId, taxVersion.id);
-    assert.equal(vat.taxableValue.toFixed(2), "105.00");
-    assert.equal(vat.taxTotal.toFixed(2), "20.75");
-    assert.equal(vat.grandTotal.toFixed(2), "120.75");
+    assert.equal(vat.taxableValue.toFixed(2), "100.00");
+    assert.equal(vat.taxTotal.toFixed(2), "20.00");
+    assert.equal(vat.grandTotal.toFixed(2), "120.00");
     assert.equal(vat.documentNumber, null);
     await assert.rejects(createDraft({ actorUserId: owner.id, workspaceId: workspace.id, data: { type: "VAT_INVOICE", customerId: customer.id, currency: "USD", draftDate: "2026-08-21", dueDate: null, notes: "", lines: [{ catalogItemId: null, customRateId: null, description: "Invalid currency", quantity: "1", unitPrice: "100" }] } }), BusinessDataValidationError);
 
@@ -107,7 +141,7 @@ test("effective trusted tax, custom snapshots, readiness, snapshots, numbering, 
     assert.equal(snapshot.issuer.businessTin, "CIV-TIN-001");
     assert.equal(snapshot.customer?.businessTin, "CUSTOMER-TIN");
     assert.equal(snapshot.lines[0]?.total, "100.00");
-    assert.equal(snapshot.totals.grandTotal, "120.75");
+    assert.equal(snapshot.totals.grandTotal, "120.00");
     assert.equal(await db.documentSnapshot.count({ where: { documentId: vat.id } }), 0);
     assert.equal(buildIssueIdempotencyReference(vat.id), `civ:document:${vat.id}:issue:v1`);
     assert.deepEqual(ISSUE_TRANSACTION_STEPS, ["VALIDATE_READINESS", "FREEZE_TRUSTED_CALCULATION", "ALLOCATE_OFFICIAL_NUMBER", "CONSUME_DOCUMENT_CAPACITY", "PERSIST_IMMUTABLE_SNAPSHOT", "TRANSITION_TO_ISSUED", "RECORD_ISSUANCE_AUDIT"]);
