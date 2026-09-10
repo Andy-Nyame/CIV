@@ -26,6 +26,7 @@ type AppShellProps = {
   workspaceContext: WorkspaceContext;
   canViewTeam: boolean;
   canViewActivity: boolean;
+  isSuperAdmin: boolean;
   privateProfilePhotoUrl: string | null;
   workspaceCommercialIndicator: WorkspaceCommercialIndicatorData;
   documentReadiness: {
@@ -39,6 +40,7 @@ type AppShellProps = {
 export function AppShell({
   canViewTeam,
   canViewActivity,
+  isSuperAdmin,
   children,
   user,
   workspaceContext,
@@ -100,6 +102,7 @@ export function AppShell({
           <AppNavigation
             canViewActivity={canViewActivity}
             canViewTeam={canViewTeam}
+            isSuperAdmin={isSuperAdmin}
           />
         </div>
         <div className="mt-auto grid gap-4 border-t border-border pt-5">
@@ -169,6 +172,7 @@ export function AppShell({
               <AppNavigation
                 canViewActivity={canViewActivity}
                 canViewTeam={canViewTeam}
+                isSuperAdmin={isSuperAdmin}
                 onNavigate={() => setMobileNavigationOpen(false)}
               />
             </div>

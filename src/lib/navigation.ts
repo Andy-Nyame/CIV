@@ -17,4 +17,5 @@ export const appNavigation = [
     requiredCapability: CAPABILITIES.VIEW_AUDIT_LOG,
   },
   { label: "Settings", href: "/app/settings" },
+  { label: "Super Admin", href: "/app/admin", superAdminOnly: true },
 ] as const;

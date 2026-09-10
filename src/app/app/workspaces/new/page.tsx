@@ -9,9 +9,10 @@ export const metadata: Metadata = {
   title: "New Workspace",
 };
 
-export default async function NewWorkspacePage() {
+export default async function NewWorkspacePage({ searchParams }: { searchParams: Promise<{ environment?: string }> }) {
   const user = await requireUser();
-  const canCreateTestWorkspace = await isSuperAdminUserId(user.id);
+  const [canCreateTestWorkspace, query] = await Promise.all([isSuperAdminUserId(user.id), searchParams]);
+  const defaultEnvironment = canCreateTestWorkspace && query.environment === "TEST" ? "TEST" : "NORMAL";
   return (
     <div>
       <PageHeading
@@ -19,7 +20,7 @@ export default async function NewWorkspacePage() {
         description="Set up a separate CIV environment for another business or organization."
       />
       <section className="mt-8 max-w-3xl rounded-xl border border-border bg-surface p-5 sm:p-7">
-        <WorkspaceForm canCreateTestWorkspace={canCreateTestWorkspace} />
+        <WorkspaceForm canCreateTestWorkspace={canCreateTestWorkspace} defaultEnvironment={defaultEnvironment} />
       </section>
     </div>
   );

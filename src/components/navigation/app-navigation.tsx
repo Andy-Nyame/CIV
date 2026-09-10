@@ -8,14 +8,17 @@ import { appNavigation } from "@/lib/navigation";
 export function AppNavigation({
   canViewActivity,
   canViewTeam,
+  isSuperAdmin,
   onNavigate,
 }: {
   canViewActivity: boolean;
   canViewTeam: boolean;
+  isSuperAdmin: boolean;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
   const visibleNavigation = appNavigation.filter((item) => {
+    if ("superAdminOnly" in item) return isSuperAdmin;
     if (!("requiredCapability" in item)) return true;
     if (item.requiredCapability === "VIEW_TEAM") return canViewTeam;
     if (item.requiredCapability === "VIEW_AUDIT_LOG") return canViewActivity;

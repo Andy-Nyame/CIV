@@ -43,3 +43,14 @@ export async function requireSuperAdminUserId(
     throw new SuperAdminAuthorizationError();
   }
 }
+
+export async function requireSuperAdminActor(
+  userId: unknown,
+  client: Pick<typeof db, "user"> | Prisma.TransactionClient = db,
+) {
+  if (typeof userId !== "string" || !userId) {
+    throw new SuperAdminAuthorizationError();
+  }
+  await requireSuperAdminUserId(userId, client);
+  return userId;
+}

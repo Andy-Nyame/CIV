@@ -22,12 +22,14 @@ type WorkspaceFormProps = {
   defaultName?: string;
   submitLabel?: string;
   canCreateTestWorkspace?: boolean;
+  defaultEnvironment?: "NORMAL" | "TEST";
 };
 
 export function WorkspaceForm({
   defaultName = "",
   submitLabel = "Create Workspace",
   canCreateTestWorkspace = false,
+  defaultEnvironment = "NORMAL",
 }: WorkspaceFormProps) {
   const [workspaceType, setWorkspaceType] =
     useState<(typeof workspaceTypes)[number]["value"]>("INDIVIDUAL");
@@ -44,7 +46,7 @@ export function WorkspaceForm({
       {canCreateTestWorkspace ? (
         <label className="grid gap-2 rounded-xl border border-warning bg-surface-muted p-4 text-sm font-semibold text-text">
           Workspace environment
-          <select className="min-h-11 rounded-lg border border-border bg-surface px-3" name="environment" defaultValue="NORMAL">
+          <select className="min-h-11 rounded-lg border border-border bg-surface px-3" name="environment" defaultValue={defaultEnvironment}>
             <option value="NORMAL">Normal workspace</option>
             <option value="TEST">TEST workspace — documents are not valid</option>
           </select>
