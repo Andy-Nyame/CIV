@@ -16,7 +16,7 @@ const taxComponentSnapshotSchema = z.object({
   calculationBase: moneySchema, amount: moneySchema,
 }).strict();
 
-const taxSnapshotSchema = z.object({
+export const documentTaxSnapshotSchema = z.object({
   profile: z.object({ jurisdiction: z.string().length(2), code: z.string().min(1).max(100), name: z.string().min(1).max(200) }).strict(),
   version: z.object({ id: z.string().uuid(), code: z.string().min(1).max(50), effectiveFrom: z.string().date(), effectiveTo: z.string().date().nullable() }).strict(),
   base: moneySchema, taxableValue: moneySchema, taxTotal: moneySchema, grossTotal: moneySchema,
@@ -50,7 +50,7 @@ export const issuedDocumentSnapshotSchema = z.object({
     customRate: z.object({ name: z.string().nullable(), type: z.enum(["PERCENTAGE", "FIXED"]), value: z.string().regex(/^\d+(\.\d{1,6})?$/), amount: moneySchema }).strict().nullable(),
     total: moneySchema,
   }).strict()).min(1).max(100),
-  tax: taxSnapshotSchema.nullable(),
+  tax: documentTaxSnapshotSchema.nullable(),
   totals: z.object({ subtotal: moneySchema, discount: moneySchema, customRates: moneySchema, taxableValue: moneySchema, trustedTax: moneySchema, grandTotal: moneySchema }).strict(),
   issuedBy: z.object({ userId: z.string().uuid(), displayName: z.string().min(1).max(320) }).strict(),
   presentation: z.object({ template: z.null(), signature: z.null() }).strict(),
@@ -76,12 +76,12 @@ export function buildCustomerSnapshot(document: {
 }
 
 export function buildIssuerSnapshot(workspace: {
-  id: string; name: string; type: string; country: string; currency: string;
+  id: string; name: string; type: "INDIVIDUAL" | "BUSINESS" | "ORGANIZATION"; country: string; currency: string;
   legalName?: string | null; tradingName?: string | null;
   email: string | null; phone: string | null; address: string | null;
   registrationNumber: string | null; businessTin: string | null;
-  taxpayerIdType?: string | null; taxpayerId?: string | null;
-  taxpayerVerificationStatus?: string | null; vatRegistered?: boolean | null;
+  taxpayerIdType?: "GHANA_CARD_PIN" | "GRA_TIN" | null; taxpayerId?: string | null;
+  taxpayerVerificationStatus?: "UNVERIFIED" | "VERIFIED" | null; vatRegistered?: boolean | null;
   logo: { storageKey: string; mimeType: string; width: number; height: number; checksum: string } | null;
 }) {
   return {
@@ -108,7 +108,7 @@ export function buildIssuerSnapshot(workspace: {
 export function buildLineSnapshots(lines: Array<{
   description: string; quantity: Prisma.Decimal; unitPrice: Prisma.Decimal;
   lineSubtotal: Prisma.Decimal; rateNameSnapshot: string | null;
-  rateTypeSnapshot: string | null; rateValueSnapshot: Prisma.Decimal | null;
+  rateTypeSnapshot: "PERCENTAGE" | "FIXED" | null; rateValueSnapshot: Prisma.Decimal | null;
   rateTotal: Prisma.Decimal; lineTotal: Prisma.Decimal; lineOrder: number;
 }>) {
   return lines.map((line) => ({

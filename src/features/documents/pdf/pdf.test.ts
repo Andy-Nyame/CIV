@@ -1,17 +1,25 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import test from "node:test";
 
 import { PDFDocument } from "pdf-lib";
+import sharp from "sharp";
 
 import { WorkspaceAuthorizationError } from "@/features/authorization/errors";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 
 import { issuedDocumentSnapshotSchema, type IssuedDocumentSnapshot } from "../snapshots";
-import { buildDocumentPdfFilename, buildIssuedDocumentPdfModel } from "./model";
-import { buildPdfTotalRows, renderIssuedDocumentPdf, TEST_WARNING } from "./render";
-import { DocumentPdfUnavailableError, generateIssuedDocumentPdf, loadIssuedDocumentPdfSource } from "./service";
+import { buildDocumentPdfFilename, buildDraftDocumentPdfModel, buildIssuedDocumentPdfModel } from "./model";
+import { buildPdfPageWarnings, buildPdfTotalRows, DRAFT_WARNING, renderDocumentPdf, renderIssuedDocumentPdf, TEST_WARNING } from "./render";
+import {
+  DocumentPdfUnavailableError,
+  generateDocumentPdf,
+  generateIssuedDocumentPdf,
+  loadDraftDocumentPdfSource,
+  loadIssuedDocumentPdfSource,
+  loadPdfLogoImage,
+} from "./service";
 
 function snapshotFixture(overrides: {
   documentId?: string;
@@ -105,10 +113,83 @@ function snapshotFixture(overrides: {
   });
 }
 
-test("issued PDF models support Invoice, Receipt, and VAT Invoice without inventing document types", () => {
-  assert.equal(buildIssuedDocumentPdfModel(snapshotFixture({ type: "INVOICE" }), false).title, "Invoice");
-  assert.equal(buildIssuedDocumentPdfModel(snapshotFixture({ type: "RECEIPT" }), false).title, "Receipt");
-  assert.equal(buildIssuedDocumentPdfModel(snapshotFixture({ type: "VAT_INVOICE" }), false).title, "VAT Invoice");
+function draftModelFixture(overrides: Parameters<typeof snapshotFixture>[0] = {}) {
+  const snapshot = snapshotFixture(overrides);
+  return buildDraftDocumentPdfModel({
+    document: {
+      draftReference: snapshot.document.draftReference,
+      type: snapshot.document.type,
+      currency: snapshot.document.currency,
+      draftDate: snapshot.document.issueDate,
+      dueDate: snapshot.document.dueDate,
+      notes: snapshot.document.notes,
+      isTestDocument: snapshot.document.isTestDocument,
+    },
+    issuer: snapshot.issuer,
+    customer: snapshot.customer,
+    lines: snapshot.lines,
+    tax: snapshot.tax,
+    totals: snapshot.totals,
+    preparedBy: "Draft Author",
+  });
+}
+
+test("issued PDF models render Invoice, Receipt, and VAT Invoice as one A4 document family", async () => {
+  for (const [type, title] of [["INVOICE", "Invoice"], ["RECEIPT", "Receipt"], ["VAT_INVOICE", "VAT Invoice"]] as const) {
+    const model = buildIssuedDocumentPdfModel(snapshotFixture({ type }), false);
+    assert.equal(model.title, title);
+    const pdf = await PDFDocument.load(await renderIssuedDocumentPdf(model));
+    assert.equal(pdf.getPageCount(), 1);
+    assert.deepEqual(pdf.getPage(0).getSize(), { width: 595.28, height: 841.89 });
+  }
+});
+
+test("draft PDF models support every current document type without verification identity", () => {
+  for (const type of ["INVOICE", "RECEIPT", "VAT_INVOICE"] as const) {
+    const model = draftModelFixture({ type, verificationCode: "CIV-7K4M-92PX-H6Q2" });
+    assert.equal(model.lifecycle, "DRAFT");
+    assert.equal(model.title, type === "VAT_INVOICE" ? "VAT Invoice" : type === "RECEIPT" ? "Receipt" : "Invoice");
+    assert.equal(model.verificationCode, null);
+    assert.match(buildDocumentPdfFilename(model), /^CIV-DRAFT-/);
+  }
+});
+
+test("draft PDFs are marked on every page and cannot render verification identity", async () => {
+  const injectedCode = "CIV-7K4M-92PX-H6Q2";
+  const model = { ...draftModelFixture({ lineCount: 45 }), verificationCode: injectedCode };
+  assert.deepEqual(buildPdfPageWarnings(model), [DRAFT_WARNING]);
+  const bytes = await renderDocumentPdf(model);
+  const parsed = await PDFDocument.load(bytes);
+  assert.ok(parsed.getPageCount() > 1);
+  assert.equal(parsed.getSubject(), DRAFT_WARNING);
+  assert.equal((parsed.getKeywords() ?? "").includes(injectedCode), false);
+  assert.equal(Buffer.from(bytes).includes(Buffer.from("/Subtype /Image")), false);
+  for (const page of parsed.getPages()) assert.deepEqual(page.getSize(), { width: 595.28, height: 841.89 });
+});
+
+test("TEST draft PDFs carry both persisted safety warnings", async () => {
+  const model = draftModelFixture({ isTestDocument: true });
+  assert.deepEqual(buildPdfPageWarnings(model), [TEST_WARNING, DRAFT_WARNING]);
+  const parsed = await PDFDocument.load(await renderDocumentPdf(model));
+  assert.equal(parsed.getSubject(), `${DRAFT_WARNING} · ${TEST_WARNING}`);
+  assert.match(buildDocumentPdfFilename(model), /^CIV-TEST-DRAFT-/);
+});
+
+test("workspace logos are checksum-verified, normalized, and optional", async () => {
+  const body = await sharp({ create: { width: 80, height: 40, channels: 4, background: "#2563eb" } }).webp().toBuffer();
+  const reference = {
+    storageKey: "workspaces/test/logo/example.webp",
+    mimeType: "image/webp",
+    width: 80,
+    height: 40,
+    checksum: createHash("sha256").update(body).digest("hex"),
+  };
+  const loaded = await loadPdfLogoImage(reference, async () => ({ body: new Uint8Array(body), contentType: "image/webp" }));
+  assert.ok(loaded);
+  assert.equal(Buffer.from(loaded).toString("hex", 0, 8), "89504e470d0a1a0a");
+  const rendered = await renderDocumentPdf(draftModelFixture(), { logoImage: loaded });
+  assert.equal(Buffer.from(rendered).includes(Buffer.from("/Subtype /Image")), true);
+  assert.equal(await loadPdfLogoImage({ ...reference, checksum: "0".repeat(64) }, async () => ({ body: new Uint8Array(body), contentType: "image/webp" })), null);
 });
 
 test("VAT PDF presentation uses the persisted statutory breakdown without recalculation", () => {
@@ -121,6 +202,11 @@ test("VAT PDF presentation uses the persisted statutory breakdown without recalc
   assert.equal(model.totals.trustedTax, "20.00");
   assert.equal(model.totals.grandTotal, "120.00");
   assert.deepEqual(model.appliedRates.map(({ label, amount }) => [label, amount]), [
+    ["NHIL (2.5%)", "2.50"],
+    ["GETFund Levy (2.5%)", "2.50"],
+    ["VAT (15%)", "15.00"],
+  ]);
+  assert.deepEqual(draftModelFixture({ type: "VAT_INVOICE" }).appliedRates.map(({ label, amount }) => [label, amount]), [
     ["NHIL (2.5%)", "2.50"],
     ["GETFund Levy (2.5%)", "2.50"],
     ["VAT (15%)", "15.00"],
@@ -285,12 +371,105 @@ test("PDF source authorization is tenant-safe and reads immutable snapshots only
     const normalDocument = await persistIssuedDocument({ workspaceId: workspace.id, creatorId: owner.id, isTestDocument: false, snapshot: normalSnapshot, customerId: customer.id });
     const testSnapshot = snapshotFixture({ isTestDocument: true, workspaceId: testWorkspace.id, verificationCode: "CIV-3N7W-8R5Y-K9QM" });
     const testDocument = await persistIssuedDocument({ workspaceId: testWorkspace.id, creatorId: superAdmin.id, isTestDocument: true, snapshot: testSnapshot });
+    const normalDraft = await db.document.create({
+      data: {
+        workspaceId: workspace.id,
+        createdByUserId: owner.id,
+        customerId: customer.id,
+        customerName: "Saved Draft Customer",
+        customerAddress: "Saved Draft Address",
+        type: "INVOICE",
+        status: "DRAFT",
+        draftReference: `DRAFT-PDF-${suffix.slice(0, 12)}`,
+        currency: "GHS",
+        draftDate: new Date("2026-09-10T00:00:00.000Z"),
+        dueDate: new Date("2026-10-10T00:00:00.000Z"),
+        subtotal: "100.00",
+        rateTotal: "3.00",
+        taxableValue: "100.00",
+        grandTotal: "103.00",
+        lines: { create: {
+          description: "Saved draft professional service",
+          quantity: "1",
+          unitPrice: "100.00",
+          lineSubtotal: "100.00",
+          rateNameSnapshot: "Draft Service Levy",
+          rateTypeSnapshot: "PERCENTAGE",
+          rateValueSnapshot: "3",
+          rateTotal: "3.00",
+          lineTotal: "103.00",
+          lineOrder: 1,
+        } },
+      },
+      select: { id: true },
+    });
+    const testDraft = await db.document.create({
+      data: {
+        workspaceId: testWorkspace.id,
+        createdByUserId: superAdmin.id,
+        customerName: "TEST Draft Customer",
+        type: "RECEIPT",
+        status: "DRAFT",
+        isTestDocument: true,
+        draftReference: `DRAFT-TEST-${suffix.slice(0, 12)}`,
+        currency: "GHS",
+        draftDate: new Date("2026-09-10T00:00:00.000Z"),
+        subtotal: "50.00",
+        taxableValue: "50.00",
+        grandTotal: "50.00",
+        lines: { create: {
+          description: "TEST draft service",
+          quantity: "1",
+          unitPrice: "50.00",
+          lineSubtotal: "50.00",
+          lineTotal: "50.00",
+          lineOrder: 1,
+        } },
+      },
+      select: { id: true },
+    });
 
     await t.test("an authorized workspace member can load an eligible issued PDF source", async () => {
       const generated = await generateIssuedDocumentPdf({ actorUserId: owner.id, workspaceId: workspace.id, documentId: normalDocument.id });
       assert.equal(generated.model.number, normalSnapshot.document.documentNumber);
       assert.equal(generated.model.customer?.name, "Snapshot Customer");
       assert.equal(Buffer.from(generated.bytes.subarray(0, 5)).toString("ascii"), "%PDF-");
+    });
+
+    await t.test("an authorized creator can generate a saved draft PDF without verification", async () => {
+      const source = await loadDraftDocumentPdfSource({ actorUserId: owner.id, workspaceId: workspace.id, documentId: normalDraft.id });
+      assert.equal(source.lifecycle, "DRAFT");
+      assert.equal(source.snapshot, null);
+      assert.equal(source.model.customer?.name, "Saved Draft Customer");
+      assert.equal(source.model.verificationCode, null);
+      assert.deepEqual(source.model.appliedRates.map(({ label, amount }) => [label, amount]), [["Draft Service Levy (3%)", "3.00"]]);
+      const generated = await generateDocumentPdf({ actorUserId: owner.id, workspaceId: workspace.id, documentId: normalDraft.id });
+      const parsed = await PDFDocument.load(generated.bytes);
+      assert.equal(parsed.getSubject(), DRAFT_WARNING);
+      assert.equal(Buffer.from(generated.bytes).includes(Buffer.from("/Subtype /Image")), false);
+    });
+
+    await t.test("OWN visibility and workspace isolation protect draft PDFs", async () => {
+      await assert.rejects(
+        loadDraftDocumentPdfSource({ actorUserId: staff.id, workspaceId: workspace.id, documentId: normalDraft.id }),
+        (error) => error instanceof DocumentPdfUnavailableError && error.reason === "NOT_FOUND",
+      );
+      await assert.rejects(
+        loadDraftDocumentPdfSource({ actorUserId: outsider.id, workspaceId: outsiderWorkspace.id, documentId: normalDraft.id }),
+        (error) => error instanceof DocumentPdfUnavailableError && error.reason === "NOT_FOUND",
+      );
+    });
+
+    await t.test("a TEST draft retains both warnings and remains Super-Admin-only", async () => {
+      const generated = await generateDocumentPdf({ actorUserId: superAdmin.id, workspaceId: testWorkspace.id, documentId: testDraft.id });
+      assert.equal(generated.model.isTestDocument, true);
+      assert.equal(generated.model.lifecycle, "DRAFT");
+      assert.deepEqual(buildPdfPageWarnings(generated.model), [TEST_WARNING, DRAFT_WARNING]);
+      assert.equal((await PDFDocument.load(generated.bytes)).getSubject(), `${DRAFT_WARNING} · ${TEST_WARNING}`);
+      await assert.rejects(
+        loadDraftDocumentPdfSource({ actorUserId: outsider.id, workspaceId: testWorkspace.id, documentId: testDraft.id }),
+        WorkspaceAuthorizationError,
+      );
     });
 
     await t.test("OWN visibility prevents staff from reading another member's issued document", async () => {

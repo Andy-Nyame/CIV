@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 import { WorkspaceAuthorizationError } from "@/features/authorization/errors";
-import { DocumentPdfUnavailableError, generateIssuedDocumentPdf } from "@/features/documents/pdf/service";
+import { DocumentPdfUnavailableError, generateDocumentPdf } from "@/features/documents/pdf/service";
 import { getWorkspaceContextForUser } from "@/features/workspaces/access";
 
 export const runtime = "nodejs";
@@ -17,7 +17,7 @@ export async function GET(
   if (!workspaceContext.current) return new Response("Not found", { status: 404 });
 
   try {
-    const generated = await generateIssuedDocumentPdf({
+    const generated = await generateDocumentPdf({
       actorUserId: session.user.id,
       workspaceId: workspaceContext.current.id,
       documentId: (await params).documentId,

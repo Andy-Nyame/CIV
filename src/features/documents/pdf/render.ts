@@ -11,13 +11,15 @@ import {
 
 import { renderVerificationBarcodePng } from "@/features/documents/verification/barcode";
 
-import type { IssuedDocumentPdfModel } from "./model";
+import type { DocumentPdfModel, IssuedDocumentPdfModel } from "./model";
 
 const PAGE_WIDTH = PageSizes.A4[0];
 const PAGE_HEIGHT = PageSizes.A4[1];
 const MARGIN = 42;
 const FOOTER_HEIGHT = 28;
 const TEST_WARNING = "TEST DOCUMENT — NOT VALID";
+const DRAFT_WARNING = "DRAFT — NOT ISSUED";
+const CIV_FOOTER = "Generated with CIV · Create · Issue · Verify";
 
 const colors = {
   blue: rgb(0.05, 0.25, 0.5),
@@ -91,12 +93,24 @@ function formatDate(value: string) {
 }
 
 function amount(currency: string, value: string) {
-  return `${currency} ${value}`;
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return `${currency} ${value}`;
+  return `${currency} ${new Intl.NumberFormat("en-GH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(numericValue)}`;
 }
 
 export type PdfTotalRow = { label: string; value: string; emphasis?: boolean };
 
-export function buildPdfTotalRows(model: IssuedDocumentPdfModel): PdfTotalRow[] {
+export function buildPdfPageWarnings(model: DocumentPdfModel) {
+  return [
+    ...(model.isTestDocument ? [TEST_WARNING] : []),
+    ...(model.lifecycle === "DRAFT" ? [DRAFT_WARNING] : []),
+  ];
+}
+
+export function buildPdfTotalRows(model: DocumentPdfModel): PdfTotalRow[] {
   return [
     { label: "Subtotal", value: model.totals.subtotal },
     ...(model.totals.discount !== "0.00" ? [{ label: "Discount", value: model.totals.discount }] : []),
@@ -112,32 +126,53 @@ function fitTextSize(value: string, font: PDFFont, preferred: number, minimum: n
   return size;
 }
 
-export async function renderIssuedDocumentPdf(model: IssuedDocumentPdfModel) {
+export async function renderDocumentPdf(
+  model: DocumentPdfModel,
+  assets: { logoImage?: Uint8Array | null } = {},
+) {
   const document = await PDFDocument.create();
   const regular = await document.embedFont("Helvetica");
   const bold = await document.embedFont("Helvetica-Bold");
-  const verificationBarcode = model.verificationCode
-    ? await renderVerificationBarcodePng(model.verificationCode)
+  const verificationCode = model.lifecycle === "ISSUED" ? model.verificationCode : null;
+  const verificationBarcode = verificationCode
+    ? await renderVerificationBarcodePng(verificationCode)
+    : null;
+  const logoImage = assets.logoImage
+    ? await document.embedPng(assets.logoImage).catch(() => null)
     : null;
   document.setTitle(`${model.title} ${model.number}`);
   document.setAuthor("CIV");
   document.setCreator("CIV server-side PDF service");
   document.setProducer("CIV");
-  document.setSubject(model.isTestDocument ? TEST_WARNING : "Issued CIV document");
-  document.setKeywords(["CIV", "document verification", ...(model.verificationCode ? [model.verificationCode] : [])]);
-  document.setCreationDate(new Date(model.issuedAt));
-  document.setModificationDate(new Date(model.issuedAt));
+  const subject = [
+    ...(model.lifecycle === "DRAFT" ? [DRAFT_WARNING] : []),
+    ...(model.isTestDocument ? [TEST_WARNING] : []),
+  ].join(" · ") || "Issued CIV document";
+  document.setSubject(subject);
+  document.setKeywords(model.lifecycle === "DRAFT"
+    ? ["CIV", "draft document"]
+    : ["CIV", "document verification", ...(verificationCode ? [verificationCode] : [])]);
+  const documentDate = new Date(model.issuedAt ?? `${model.issueDate}T00:00:00.000Z`);
+  document.setCreationDate(documentDate);
+  document.setModificationDate(documentDate);
 
   let page: PDFPage = document.addPage(PageSizes.A4);
   let y = 0;
   let pageNumber = 0;
 
+  const warnings = buildPdfPageWarnings(model).map((text) => ({
+    text,
+    color: text === TEST_WARNING ? colors.red : colors.blue,
+  }));
+  const contentTop = () => PAGE_HEIGHT - MARGIN - warnings.length * 27;
+
   const drawPageFurniture = () => {
     pageNumber += 1;
-    page.drawText(`CIV · ${pdfSafeText(model.number, regular)}`, {
+    page.drawRectangle({ x: 0, y: 0, width: PAGE_WIDTH, height: PAGE_HEIGHT, color: colors.white });
+    page.drawText(CIV_FOOTER, {
       x: MARGIN,
       y: 18,
-      size: 8,
+      size: 7.5,
       font: regular,
       color: colors.muted,
     });
@@ -149,38 +184,50 @@ export async function renderIssuedDocumentPdf(model: IssuedDocumentPdfModel) {
       font: regular,
       color: colors.muted,
     });
+    warnings.forEach((warning, index) => {
+      const bandBottom = PAGE_HEIGHT - 27 * (index + 1);
+      page.drawRectangle({
+        x: 0,
+        y: bandBottom,
+        width: PAGE_WIDTH,
+        height: 27,
+        color: warning.color,
+      });
+      const warningWidth = bold.widthOfTextAtSize(warning.text, 12);
+      page.drawText(warning.text, {
+        x: (PAGE_WIDTH - warningWidth) / 2,
+        y: bandBottom + 8,
+        size: 12,
+        font: bold,
+        color: colors.white,
+      });
+    });
     if (model.isTestDocument) {
       page.drawText(TEST_WARNING, {
         x: 96,
-        y: 305,
+        y: 300,
         size: 39,
         font: bold,
         color: colors.red,
         opacity: 0.08,
         rotate: degrees(34),
       });
-      page.drawRectangle({
-        x: 0,
-        y: PAGE_HEIGHT - 30,
-        width: PAGE_WIDTH,
-        height: 30,
-        color: colors.red,
-      });
-      const warningWidth = bold.widthOfTextAtSize(TEST_WARNING, 13);
-      page.drawText(TEST_WARNING, {
-        x: (PAGE_WIDTH - warningWidth) / 2,
-        y: PAGE_HEIGHT - 20,
-        size: 13,
-        font: bold,
-        color: colors.white,
-      });
     }
+    if (model.lifecycle === "DRAFT") page.drawText(DRAFT_WARNING, {
+      x: 108,
+      y: 430,
+      size: 43,
+      font: bold,
+      color: colors.blue,
+      opacity: 0.07,
+      rotate: degrees(34),
+    });
   };
 
   const newPage = () => {
     page = document.addPage(PageSizes.A4);
     drawPageFurniture();
-    y = PAGE_HEIGHT - MARGIN - (model.isTestDocument ? 24 : 0);
+    y = contentTop();
   };
 
   const ensureSpace = (height: number) => {
@@ -196,23 +243,16 @@ export async function renderIssuedDocumentPdf(model: IssuedDocumentPdfModel) {
     page.drawText(label.toUpperCase(), { x, y: labelY, size: 7.5, font: bold, color: colors.blue });
   };
 
-  const drawDetailLines = (lines: string[], x: number, startY: number, width: number) => {
-    let detailY = startY;
-    for (const line of lines.filter(Boolean)) {
-      for (const wrapped of wrapText(line, regular, 9, width)) {
-        page.drawText(wrapped, { x, y: detailY, size: 9, font: regular, color: colors.dark });
-        detailY -= 12;
-      }
-    }
-    return detailY;
-  };
+  const wrapDetailLines = (lines: string[], width: number) => lines
+    .filter(Boolean)
+    .flatMap((line) => wrapText(line, regular, 9, width));
 
   const tableX = [MARGIN, MARGIN + 221, MARGIN + 271, MARGIN + 351, MARGIN + 431];
   const tableWidths = [221, 50, 80, 80, 80];
   const drawTableHeader = () => {
     ensureSpace(34);
     page.drawRectangle({ x: MARGIN, y: y - 24, width: PAGE_WIDTH - MARGIN * 2, height: 24, color: colors.pale });
-    const headings = ["Description", "Qty", "Unit price", "Rate", "Total"];
+    const headings = ["Description", "Qty", "Unit price", "Rate amount", "Total"];
     headings.forEach((heading, index) => {
       const width = bold.widthOfTextAtSize(heading, 8);
       page.drawText(heading, {
@@ -239,22 +279,51 @@ export async function renderIssuedDocumentPdf(model: IssuedDocumentPdfModel) {
   };
 
   drawPageFurniture();
-  y = PAGE_HEIGHT - MARGIN - (model.isTestDocument ? 24 : 0);
+  y = contentTop();
 
-  page.drawText("CIV", { x: MARGIN, y: y - 9, size: 18, font: bold, color: colors.blue });
+  const identityName = model.issuer.tradingName ?? model.issuer.legalName;
+  let identityX = MARGIN;
+  if (logoImage) {
+    const logoScale = Math.min(52 / logoImage.width, 46 / logoImage.height);
+    const logoWidth = logoImage.width * logoScale;
+    const logoHeight = logoImage.height * logoScale;
+    page.drawImage(logoImage, { x: MARGIN, y: y - logoHeight + 3, width: logoWidth, height: logoHeight });
+    identityX += logoWidth + 12;
+  }
+  const identityLines = wrapText(identityName, bold, 12, 270 - (identityX - MARGIN)).slice(0, 3);
+  identityLines.forEach((line, index) => page.drawText(line, {
+    x: identityX,
+    y: y - 5 - index * 14,
+    size: 12,
+    font: bold,
+    color: colors.dark,
+  }));
   const title = model.title.toUpperCase();
   page.drawText(title, {
     x: PAGE_WIDTH - MARGIN - bold.widthOfTextAtSize(title, 18),
-    y: y - 9,
+    y: y - 5,
     size: 18,
     font: bold,
-    color: colors.dark,
+    color: colors.blue,
   });
-  y -= 36;
+  if (model.lifecycle === "DRAFT") {
+    const draftLabel = "DRAFT PREVIEW";
+    page.drawText(draftLabel, {
+      x: PAGE_WIDTH - MARGIN - bold.widthOfTextAtSize(draftLabel, 8),
+      y: y - 20,
+      size: 8,
+      font: bold,
+      color: colors.red,
+    });
+  }
+  y -= 58;
+  drawRule();
+  drawLabel(model.lifecycle === "DRAFT" ? "Draft reference" : "Document number", MARGIN, y + 1);
+  y -= 16;
   const documentNumber = pdfSafeText(model.number, bold);
   const documentNumberSize = fitTextSize(documentNumber, bold, 15, 8, 260);
   page.drawText(documentNumber, { x: MARGIN, y, size: documentNumberSize, font: bold, color: colors.dark });
-  const dateLabel = `Issue date: ${formatDate(model.issueDate)}`;
+  const dateLabel = `${model.lifecycle === "DRAFT" ? "Draft" : "Issue"} date: ${formatDate(model.issueDate)}`;
   page.drawText(dateLabel, {
     x: PAGE_WIDTH - MARGIN - regular.widthOfTextAtSize(dateLabel, 9),
     y: y + 2,
@@ -273,16 +342,12 @@ export async function renderIssuedDocumentPdf(model: IssuedDocumentPdfModel) {
       color: colors.muted,
     });
   }
-  if (model.isTestDocument) page.drawText(TEST_WARNING, { x: MARGIN, y, size: 9, font: bold, color: colors.red });
   y -= 18;
   drawRule();
 
   const leftX = MARGIN;
   const rightX = 320;
   const blockWidth = 230;
-  const blockTop = y;
-  drawLabel("From", leftX, blockTop);
-  drawLabel("Customer", rightX, blockTop);
   const issuerLines = [
     model.issuer.legalName,
     model.issuer.tradingName && model.issuer.tradingName !== model.issuer.legalName ? `Trading as ${model.issuer.tradingName}` : "",
@@ -301,29 +366,27 @@ export async function renderIssuedDocumentPdf(model: IssuedDocumentPdfModel) {
     model.customer.phone ?? "",
     model.customer.taxpayerId ? `Customer TIN/VAT no.: ${model.customer.taxpayerId}` : "",
   ] : ["Customer not recorded"];
-  const issuerBottom = drawDetailLines(issuerLines, leftX, blockTop - 17, blockWidth);
-  const customerBottom = drawDetailLines(customerLines, rightX, blockTop - 17, blockWidth);
-  y = Math.min(issuerBottom, customerBottom) - 10;
-
-  if (model.verificationCode) {
-    const blockHeight = verificationBarcode ? 112 : 54;
-    ensureSpace(blockHeight);
-    drawRule();
-    y -= 14;
-    drawLabel("CIV verification", MARGIN, y);
+  const issuerDetails = wrapDetailLines(issuerLines, blockWidth);
+  const customerDetails = wrapDetailLines(customerLines, blockWidth);
+  let issuerOffset = 0;
+  let customerOffset = 0;
+  let detailPage = 0;
+  while (issuerOffset < issuerDetails.length || customerOffset < customerDetails.length) {
+    if (y < FOOTER_HEIGHT + MARGIN + 45) newPage();
+    drawLabel(detailPage ? "From (continued)" : "From", leftX, y);
+    drawLabel(detailPage ? "Customer (continued)" : "Customer", rightX, y);
     y -= 17;
-    if (verificationBarcode) {
-      const barcodeImage = await document.embedPng(verificationBarcode.bytes);
-      const scale = Math.min(300 / barcodeImage.width, 50 / barcodeImage.height, 1);
-      const width = barcodeImage.width * scale;
-      const height = barcodeImage.height * scale;
-      page.drawImage(barcodeImage, { x: MARGIN, y: y - height, width, height });
-      y -= height + 9;
-    }
-    page.drawText(`Verification Code: ${pdfSafeText(model.verificationCode, bold)}`, { x: MARGIN, y, size: 9, font: bold, color: colors.dark });
-    y -= 13;
-    page.drawText("Verify this document on CIV using the code above.", { x: MARGIN, y, size: 8, font: regular, color: colors.muted });
-    y -= 17;
+    const fits = Math.max(1, Math.floor((y - FOOTER_HEIGHT - MARGIN - 8) / 12));
+    const issuerFragment = issuerDetails.slice(issuerOffset, issuerOffset + fits);
+    const customerFragment = customerDetails.slice(customerOffset, customerOffset + fits);
+    const fragmentLength = Math.max(issuerFragment.length, customerFragment.length, 1);
+    issuerFragment.forEach((line, index) => page.drawText(line, { x: leftX, y: y - index * 12, size: 9, font: regular, color: colors.dark }));
+    customerFragment.forEach((line, index) => page.drawText(line, { x: rightX, y: y - index * 12, size: 9, font: regular, color: colors.dark }));
+    issuerOffset += issuerFragment.length;
+    customerOffset += customerFragment.length;
+    y -= fragmentLength * 12 + 10;
+    detailPage += 1;
+    if (issuerOffset < issuerDetails.length || customerOffset < customerDetails.length) newPage();
   }
 
   ensureSpace(50);
@@ -369,28 +432,42 @@ export async function renderIssuedDocumentPdf(model: IssuedDocumentPdfModel) {
   }
 
   const totalRows = buildPdfTotalRows(model);
-  const totalsHeight = totalRows.length * 20 + 28;
-  ensureSpace(totalsHeight);
-  y -= 14;
   const totalsX = 322;
-  page.drawLine({ start: { x: totalsX, y }, end: { x: PAGE_WIDTH - MARGIN, y }, thickness: 0.8, color: colors.line });
-  y -= 19;
-  for (const row of totalRows) {
+  const totalsLabelWidth = 125;
+  const preparedTotalRows = totalRows.map((row) => {
     const rowFont = row.emphasis ? bold : regular;
     const size = row.emphasis ? 11 : 9;
-    page.drawText(row.label, { x: totalsX, y, size, font: rowFont, color: colors.dark });
+    const labelLines = wrapText(row.label, rowFont, size, totalsLabelWidth);
+    return { ...row, rowFont, size, labelLines, height: Math.max(20, labelLines.length * (size + 2) + 7) };
+  });
+  const totalsHeight = preparedTotalRows.reduce((sum, row) => sum + row.height, 28);
+  if (totalsHeight < contentTop() - FOOTER_HEIGHT - MARGIN) ensureSpace(totalsHeight);
+  else ensureSpace(48);
+  y -= 14;
+  page.drawLine({ start: { x: totalsX, y }, end: { x: PAGE_WIDTH - MARGIN, y }, thickness: 0.8, color: colors.line });
+  y -= 19;
+  for (const row of preparedTotalRows) {
+    ensureSpace(row.height);
+    row.labelLines.forEach((label, index) => page.drawText(label, {
+      x: totalsX,
+      y: y - index * (row.size + 2),
+      size: row.size,
+      font: row.rowFont,
+      color: colors.dark,
+    }));
     const value = amount(model.currency, row.value);
+    const valueSize = fitTextSize(value, row.rowFont, row.size, 6, PAGE_WIDTH - MARGIN - totalsX - totalsLabelWidth - 8);
     page.drawText(value, {
-      x: PAGE_WIDTH - MARGIN - rowFont.widthOfTextAtSize(value, size),
+      x: PAGE_WIDTH - MARGIN - row.rowFont.widthOfTextAtSize(value, valueSize),
       y,
-      size,
-      font: rowFont,
+      size: valueSize,
+      font: row.rowFont,
       color: colors.dark,
     });
     if (row.emphasis) {
       page.drawLine({ start: { x: totalsX, y: y + 16 }, end: { x: PAGE_WIDTH - MARGIN, y: y + 16 }, thickness: 1.2, color: colors.blue });
     }
-    y -= 20;
+    y -= row.height;
   }
 
   if (model.notes) {
@@ -418,15 +495,41 @@ export async function renderIssuedDocumentPdf(model: IssuedDocumentPdfModel) {
     }
   }
 
-  page.drawText(`Issued by ${pdfSafeText(model.issuedBy, regular)}`, {
-    x: MARGIN,
-    y: 34,
-    size: 7.5,
-    font: regular,
-    color: colors.muted,
-  });
+  if (model.lifecycle === "ISSUED") {
+    ensureSpace(verificationCode ? (verificationBarcode ? 106 : 58) : 42);
+    y -= 8;
+    drawRule();
+    drawLabel("CIV verification", MARGIN, y);
+    y -= 17;
+    if (verificationCode) {
+      if (verificationBarcode) {
+        const barcodeImage = await document.embedPng(verificationBarcode.bytes);
+        const scale = Math.min(300 / barcodeImage.width, 48 / barcodeImage.height, 1);
+        const width = barcodeImage.width * scale;
+        const height = barcodeImage.height * scale;
+        page.drawImage(barcodeImage, { x: MARGIN, y: y - height, width, height });
+        y -= height + 8;
+      }
+      page.drawText(`Verification Code: ${pdfSafeText(verificationCode, bold)}`, { x: MARGIN, y, size: 9, font: bold, color: colors.dark });
+      y -= 13;
+      page.drawText("Verify this document on CIV using the code above.", { x: MARGIN, y, size: 8, font: regular, color: colors.muted });
+      y -= 14;
+    } else {
+      page.drawText("Verification code unavailable for this historical document.", { x: MARGIN, y, size: 8.5, font: regular, color: colors.muted });
+      y -= 14;
+    }
+  }
+
+  ensureSpace(28);
+  y -= 6;
+  const actorLabel = `${model.lifecycle === "DRAFT" ? "Prepared" : "Issued"} by ${pdfSafeText(model.preparedBy, regular)}`;
+  page.drawText(actorLabel, { x: MARGIN, y, size: 7.5, font: regular, color: colors.muted });
 
   return document.save({ useObjectStreams: false });
 }
 
-export { TEST_WARNING };
+export function renderIssuedDocumentPdf(model: IssuedDocumentPdfModel, assets: { logoImage?: Uint8Array | null } = {}) {
+  return renderDocumentPdf(model, assets);
+}
+
+export { DRAFT_WARNING, TEST_WARNING };

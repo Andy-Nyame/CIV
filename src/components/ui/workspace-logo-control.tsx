@@ -48,7 +48,7 @@ export function WorkspaceLogoControl({
         <div>
           <p className="font-semibold text-text">{workspaceName}</p>
           <p className="mt-1 max-w-md text-sm leading-6 text-muted">
-            Private workspace branding for CIV. Future document templates and artwork are not enabled yet.
+            Private workspace branding used on CIV-generated document PDFs.
           </p>
         </div>
       </div>
