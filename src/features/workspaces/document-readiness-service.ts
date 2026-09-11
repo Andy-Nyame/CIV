@@ -18,25 +18,30 @@ export const workspaceReadinessSelect = {
   taxpayerIdType: true,
   taxpayerId: true,
   vatRegistered: true,
+  vatRegistrationStatus: true,
+  vatRegistrationEffectiveDate: true,
+  vatDeregistrationEffectiveDate: true,
 } as const;
 
 export async function getWorkspaceDocumentReadiness(input: {
   actorUserId: string;
   workspaceId: string;
   documentType?: DocumentType;
+  taxPointDate?: Date | string;
 }) {
   const workspace = await db.workspace.findUniqueOrThrow({
     where: { id: input.workspaceId },
     select: workspaceReadinessSelect,
   });
   const isSuperAdmin = await isSuperAdminUserId(input.actorUserId);
-  return evaluateWorkspaceDocumentReadiness({ workspace, documentType: input.documentType, isSuperAdmin });
+  return evaluateWorkspaceDocumentReadiness({ workspace, documentType: input.documentType, taxPointDate: input.taxPointDate, isSuperAdmin });
 }
 
 export async function authorizeWorkspaceDocumentReadinessInTransaction(input: {
   actorUserId: string;
   workspaceId: string;
   documentType?: DocumentType;
+  taxPointDate?: Date | string;
   capability: Capability;
 }, transaction: Prisma.TransactionClient) {
   const rows = await transaction.$queryRaw<Array<{
@@ -50,11 +55,16 @@ export async function authorizeWorkspaceDocumentReadinessInTransaction(input: {
     taxpayerIdType: "GHANA_CARD_PIN" | "GRA_TIN" | null;
     taxpayerId: string | null;
     vatRegistered: boolean;
+    vatRegistrationStatus: "NOT_REGISTERED" | "PENDING" | "REGISTERED" | "DEREGISTERED";
+    vatRegistrationEffectiveDate: Date | null;
+    vatDeregistrationEffectiveDate: Date | null;
   }>>`
     SELECT m."role"::text AS role, u."email", w."name",
       w."type"::text AS type, w."environment"::text AS environment,
       w."legalName", w."address", w."taxpayerIdType"::text AS "taxpayerIdType",
-      w."taxpayerId", w."vatRegistered"
+      w."taxpayerId", w."vatRegistered",
+      w."vatRegistrationStatus"::text AS "vatRegistrationStatus",
+      w."vatRegistrationEffectiveDate", w."vatDeregistrationEffectiveDate"
     FROM "Membership" m
     JOIN "User" u ON u."id" = m."userId"
     JOIN "Workspace" w ON w."id" = m."workspaceId"
@@ -72,6 +82,7 @@ export async function authorizeWorkspaceDocumentReadinessInTransaction(input: {
   const readiness = evaluateWorkspaceDocumentReadiness({
     workspace,
     documentType: input.documentType,
+    taxPointDate: input.taxPointDate,
     isSuperAdmin,
   });
   return { readiness, workspace, isSuperAdmin, membership: { role, userId: input.actorUserId, workspaceId: input.workspaceId } };
@@ -81,6 +92,7 @@ export async function requireWorkspaceDocumentReadinessInTransaction(input: {
   actorUserId: string;
   workspaceId: string;
   documentType?: DocumentType;
+  taxPointDate?: Date | string;
   capability: Capability;
 }, transaction: Prisma.TransactionClient) {
   const context = await authorizeWorkspaceDocumentReadinessInTransaction(input, transaction);

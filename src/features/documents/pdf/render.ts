@@ -112,11 +112,22 @@ export function buildPdfPageWarnings(model: DocumentPdfModel) {
 
 export function buildPdfTotalRows(model: DocumentPdfModel): PdfTotalRow[] {
   return [
-    { label: "Subtotal", value: model.totals.subtotal },
+    ...(model.totals.originalAmount !== "0.00" && model.totals.discount !== "0.00" ? [{ label: "Original amount", value: model.totals.originalAmount }] : []),
     ...(model.totals.discount !== "0.00" ? [{ label: "Discount", value: model.totals.discount }] : []),
+    { label: model.totals.discount !== "0.00" ? "Post-discount base" : "Subtotal", value: model.totals.subtotal },
+    ...(model.totals.standardRatedValue !== "0.00" ? [{ label: "Standard-rated value", value: model.totals.standardRatedValue }] : []),
+    ...(model.totals.zeroRatedValue !== "0.00" ? [{ label: "Zero-rated value", value: model.totals.zeroRatedValue }] : []),
+    ...(model.totals.exemptValue !== "0.00" ? [{ label: "Exempt value", value: model.totals.exemptValue }] : []),
+    ...(model.totals.relievedValue !== "0.00" ? [{ label: "Relieved value", value: model.totals.relievedValue }] : []),
     ...model.appliedRates.map((rate) => ({ label: rate.label, value: rate.amount })),
-    ...(model.tax ? [{ label: "Taxable base", value: model.totals.taxableValue }] : []),
-    { label: "Grand total", value: model.totals.grandTotal, emphasis: true },
+    ...(model.totals.trustedTax !== "0.00" ? [{ label: "Total statutory tax", value: model.totals.trustedTax }] : []),
+    ...(model.tax ? [{ label: "Total tax-inclusive value", value: model.totals.totalTaxInclusiveValue }] : []),
+    { label: "Grand total", value: model.totals.grandTotal, emphasis: !model.totals.withholding },
+    ...(model.totals.withholding ? [{
+      label: `VAT withholding credit (${model.totals.withholding.reference}${model.totals.withholding.date ? ` · ${model.totals.withholding.date}` : ""})`,
+      value: model.totals.withholding.amount,
+    }] : []),
+    ...(model.totals.withholding && model.totals.netPayable ? [{ label: "Net amount payable / settled", value: model.totals.netPayable, emphasis: true }] : []),
   ];
 }
 
@@ -342,7 +353,22 @@ export async function renderDocumentPdf(
       color: colors.muted,
     });
   }
+  y -= 17;
+  const transactionDetails = [
+    model.supplyDate ? `Supply date: ${formatDate(model.supplyDate)}` : null,
+    `Transaction: ${model.transactionType.replaceAll("_", " ").toLowerCase()}`,
+    `Prices: ${model.priceMode === "TAX_INCLUSIVE" ? "Tax inclusive" : "Tax exclusive"}`,
+  ].filter(Boolean).join(" · ");
+  const transactionSize = fitTextSize(transactionDetails, regular, 8.5, 6, PAGE_WIDTH - MARGIN * 2);
+  page.drawText(transactionDetails, { x: MARGIN, y, size: transactionSize, font: regular, color: colors.muted });
   y -= 18;
+  if (model.adjustment) {
+    const adjustment = `${model.adjustment.direction === "REDUCE" ? "Credit against" : "Debit against"} ${model.adjustment.originalDocumentNumber} (${formatDate(model.adjustment.originalIssueDate)}) · Reason: ${model.adjustment.reason}`;
+    const adjustmentLines = wrapText(adjustment, bold, 8.5, PAGE_WIDTH - MARGIN * 2);
+    ensureSpace(adjustmentLines.length * 11 + 8);
+    adjustmentLines.forEach((line, index) => page.drawText(line, { x: MARGIN, y: y - index * 11, size: 8.5, font: bold, color: colors.dark }));
+    y -= adjustmentLines.length * 11 + 7;
+  }
   drawRule();
 
   const leftX = MARGIN;
@@ -357,14 +383,15 @@ export async function renderDocumentPdf(
     model.issuer.registrationNumber ? `Registration no.: ${model.issuer.registrationNumber}` : "",
     model.issuer.taxpayerId && model.issuer.taxpayerIdLabel ? `${model.issuer.taxpayerIdLabel}: ${model.issuer.taxpayerId}` : "",
     model.issuer.taxpayerVerificationStatus ? `Taxpayer status: ${model.issuer.taxpayerVerificationStatus === "VERIFIED" ? "Verified" : "Unverified"}` : "",
-    model.issuer.vatRegistered === null ? "" : `VAT registered: ${model.issuer.vatRegistered ? "Yes" : "No"}`,
+    model.issuer.vatRegistrationStatus ? `VAT status: ${model.issuer.vatRegistrationStatus.replaceAll("_", " ").toLowerCase()}` : model.issuer.vatRegistered === null ? "" : `VAT registered: ${model.issuer.vatRegistered ? "Yes" : "No"}`,
   ];
   const customerLines = model.customer ? [
     model.customer.name,
     model.customer.address ?? "",
     model.customer.email ?? "",
     model.customer.phone ?? "",
-    model.customer.taxpayerId ? `Customer TIN/VAT no.: ${model.customer.taxpayerId}` : "",
+    model.customer.taxpayerId && model.customer.taxpayerIdLabel ? `${model.customer.taxpayerIdLabel}: ${model.customer.taxpayerId}` : "",
+    model.customer.vatRegistrationStatus ? `Recorded VAT status: ${model.customer.vatRegistrationStatus.replaceAll("_", " ").toLowerCase()}` : "",
   ] : ["Customer not recorded"];
   const issuerDetails = wrapDetailLines(issuerLines, blockWidth);
   const customerDetails = wrapDetailLines(customerLines, blockWidth);
@@ -392,7 +419,19 @@ export async function renderDocumentPdf(
   ensureSpace(50);
   drawTableHeader();
   for (const line of model.lines) {
-    const description = line.rateLabel ? `${line.description}\nRate: ${line.rateLabel}` : line.description;
+    const treatment = line.relief
+      ? `Tax treatment: Relieved standard-rated · ${line.relief.reason} · Ref ${line.relief.reference}`
+      : `Tax treatment: ${line.taxTreatment.replaceAll("_", " ").toLowerCase()}${line.taxTreatmentReason ? ` · ${line.taxTreatmentReason}` : ""}${line.taxTreatmentReference ? ` · Ref ${line.taxTreatmentReference}` : ""}`;
+    const details = [
+      line.description,
+      line.unitOfMeasure ? `Unit: ${line.unitOfMeasure}` : null,
+      treatment,
+      line.discount !== "0.00" ? `Discount: ${amount(model.currency, line.discount)}` : null,
+      `Base: ${amount(model.currency, line.taxableBase)}`,
+      line.taxAmount !== "0.00" ? `Statutory tax: ${amount(model.currency, line.taxAmount)}` : null,
+      line.rateLabel ? `Custom rate: ${line.rateLabel}` : null,
+    ].filter(Boolean).join("\n");
+    const description = details;
     const descriptionLines = wrapText(description, regular, 8.5, tableWidths[0]! - 12);
     let offset = 0;
     let firstFragment = true;

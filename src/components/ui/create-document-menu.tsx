@@ -6,6 +6,8 @@ const documentTypes = [
   { label: "Invoice", type: "INVOICE" },
   { label: "Receipt", type: "RECEIPT" },
   { label: "VAT Invoice", type: "VAT_INVOICE" },
+  { label: "Credit Note", type: "CREDIT_NOTE" },
+  { label: "Debit Note", type: "DEBIT_NOTE" },
 ] as const;
 
 type CreateDocumentMenuProps = {

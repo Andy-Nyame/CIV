@@ -11,7 +11,7 @@ export type PublicVerificationResult =
       status: "VALID" | "TEST" | "VOID";
       isTestDocument: boolean;
       verificationCode: string;
-      documentType: "Invoice" | "Receipt" | "VAT Invoice";
+      documentType: "Invoice" | "Receipt" | "VAT Invoice" | "Credit Note" | "Debit Note";
       documentNumber: string;
       issuerName: string;
       issueDate: string;
@@ -23,6 +23,8 @@ const documentTypeLabels = {
   INVOICE: "Invoice",
   RECEIPT: "Receipt",
   VAT_INVOICE: "VAT Invoice",
+  CREDIT_NOTE: "Credit Note",
+  DEBIT_NOTE: "Debit Note",
 } as const;
 
 export function mapPublicVerificationResult(input: {

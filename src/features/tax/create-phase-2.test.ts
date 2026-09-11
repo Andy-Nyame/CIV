@@ -95,7 +95,7 @@ test("effective trusted tax, custom snapshots, readiness, snapshots, numbering, 
   }
   try {
     const [owner, outsider] = await Promise.all([user("owner"), user("outsider")]);
-    const workspace = await db.workspace.create({ data: { name: `Phase 2 ${suffix.slice(0,8)}`, type: "BUSINESS", legalName: `Phase 2 ${suffix.slice(0,8)}`, address: "Accra", taxpayerIdType: "GRA_TIN", taxpayerId: "CIV-TIN-001", businessTin: "CIV-TIN-001", vatRegistered: true, memberships: { create: { userId: owner.id, role: "OWNER", status: "ACTIVE" } } }, select: { id: true } });
+    const workspace = await db.workspace.create({ data: { name: `Phase 2 ${suffix.slice(0,8)}`, type: "BUSINESS", legalName: `Phase 2 ${suffix.slice(0,8)}`, address: "Accra", taxpayerIdType: "GRA_TIN", taxpayerId: "CIV-TIN-001", businessTin: "CIV-TIN-001", vatRegistered: true, vatRegistrationStatus: "REGISTERED", vatRegistrationEffectiveDate: new Date("2026-01-01T00:00:00.000Z"), memberships: { create: { userId: owner.id, role: "OWNER", status: "ACTIVE" } } }, select: { id: true } });
     const other = await db.workspace.create({ data: { name: `Other ${suffix.slice(0,8)}`, type: "BUSINESS", memberships: { create: { userId: outsider.id, role: "OWNER", status: "ACTIVE" } } }, select: { id: true } });
     workspaceIds.push(workspace.id, other.id);
     const customer = await createCustomer({ actorUserId: owner.id, workspaceId: workspace.id, data: { name: "Tax Customer", email: "tax@example.invalid", phone: "+233200000000", address: "Accra", businessTin: "CUSTOMER-TIN", notes: "" } });
@@ -113,8 +113,8 @@ test("effective trusted tax, custom snapshots, readiness, snapshots, numbering, 
 
     const ordinary = await createDraft({ actorUserId: owner.id, workspaceId: workspace.id, data: { type: "INVOICE", customerId: customer.id, customerName: customer.name, currency: "GHS", draftDate: "2026-08-21", dueDate: "2026-09-01", notes: "Custom rate", lines: [{ catalogItemId: null, customRateId: rate.id, description: "Service", quantity: "1", unitPrice: "100.00" }] } });
     assert.equal(ordinary.rateTotal.toFixed(2), "5.00");
-    assert.equal(ordinary.grandTotal.toFixed(2), "105.00");
-    assert.equal(ordinary.taxVersionId, null);
+    assert.equal(ordinary.grandTotal.toFixed(2), "125.00");
+    assert.equal(ordinary.taxVersionId, taxVersion.id);
     await updateCustomRate({ actorUserId: owner.id, workspaceId: workspace.id, rateId: rate.id, data: { name: rate.name, type: rate.type, value: "7", description: rate.description ?? "" } });
     const preserved = await updateDraft({ actorUserId: owner.id, workspaceId: workspace.id, documentId: ordinary.id, data: { type: "INVOICE", customerId: customer.id, customerName: customer.name, currency: "GHS", draftDate: "2026-08-21", dueDate: "2026-09-01", notes: "Preserve", lines: [{ id: ordinary.lines[0]!.id, catalogItemId: null, customRateId: rate.id, description: "Service", quantity: "1", unitPrice: "100.00" }] } });
     assert.equal(preserved.rateTotal.toFixed(2), "5.00");
@@ -141,7 +141,7 @@ test("effective trusted tax, custom snapshots, readiness, snapshots, numbering, 
     const snapshot = await buildFutureDocumentSnapshot({ actorUserId: owner.id, workspaceId: workspace.id, documentId: vat.id });
     assert.equal(snapshot.issuer.businessTin, "CIV-TIN-001");
     assert.equal(snapshot.customer?.businessTin, "CUSTOMER-TIN");
-    assert.equal(snapshot.lines[0]?.total, "100.00");
+    assert.equal(snapshot.lines[0]?.total, "120.00");
     assert.equal(snapshot.totals.grandTotal, "120.00");
     assert.equal(await db.documentSnapshot.count({ where: { documentId: vat.id } }), 0);
     assert.equal(buildIssueIdempotencyReference(vat.id), `civ:document:${vat.id}:issue:v1`);

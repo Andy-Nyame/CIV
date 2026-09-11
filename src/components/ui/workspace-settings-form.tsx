@@ -21,6 +21,10 @@ type WorkspaceValues = {
   taxpayerId: string | null;
   taxpayerIdType: "GHANA_CARD_PIN" | "GRA_TIN" | null;
   taxpayerVerificationStatus: "UNVERIFIED" | "VERIFIED";
+  businessActivity: "GOODS" | "SERVICES" | "BOTH";
+  vatRegistrationStatus: "NOT_REGISTERED" | "PENDING" | "REGISTERED" | "DEREGISTERED";
+  vatRegistrationEffectiveDate: Date | string | null;
+  vatDeregistrationEffectiveDate: Date | string | null;
   vatRegistered: boolean;
 };
 
@@ -48,6 +52,11 @@ export function WorkspaceSettingsForm({
     initialWorkspaceSettingsFormState,
   );
   const [workspaceType, setWorkspaceType] = useState(workspace.type);
+  const [businessActivity, setBusinessActivity] = useState(workspace.businessActivity);
+  const [vatStatus, setVatStatus] = useState(workspace.vatRegistrationStatus);
+  const dateValue = (value: Date | string | null) => value
+    ? (typeof value === "string" ? value : value.toISOString()).slice(0, 10)
+    : "";
   const inputClass =
     "min-h-12 rounded-lg border border-border bg-surface px-3.5 font-normal text-text disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-muted";
 
@@ -197,13 +206,37 @@ export function WorkspaceSettingsForm({
               <FieldError errors={state.fieldErrors?.taxpayerId} />
             </label>
             <label className="grid gap-2 text-sm font-semibold text-text">
+              Business activity
+              <select className={inputClass} name="businessActivity" value={businessActivity} onChange={(event) => setBusinessActivity(event.target.value as WorkspaceValues["businessActivity"])} disabled={!canManage}>
+                <option value="GOODS">Goods</option>
+                <option value="SERVICES">Services</option>
+                <option value="BOTH">Goods and services</option>
+              </select>
+              <span className="text-sm font-normal text-muted">Used for compliance guidance; CIV does not determine legal registration liability.</span>
+            </label>
+            <label className="grid gap-2 text-sm font-semibold text-text">
               VAT registration status
-              <select className={inputClass} name="vatRegistered" defaultValue={workspace.vatRegistered ? "true" : "false"} disabled={!canManage}>
-                <option value="false">Not VAT registered</option>
-                <option value="true">VAT registered</option>
+              <select className={inputClass} name="vatRegistrationStatus" value={vatStatus} onChange={(event) => setVatStatus(event.target.value as WorkspaceValues["vatRegistrationStatus"])} disabled={!canManage}>
+                <option value="NOT_REGISTERED">Not registered</option>
+                <option value="PENDING">Pending</option>
+                <option value="REGISTERED">Registered</option>
+                <option value="DEREGISTERED">Deregistered</option>
               </select>
               <span className="text-sm font-normal text-muted">A taxpayer ID alone does not make this workspace VAT eligible.</span>
             </label>
+            <label className="grid gap-2 text-sm font-semibold text-text">
+              VAT registration effective date
+              <input className={inputClass} type="date" name="vatRegistrationEffectiveDate" defaultValue={dateValue(workspace.vatRegistrationEffectiveDate)} disabled={!canManage || !["REGISTERED", "DEREGISTERED"].includes(vatStatus)} />
+              <FieldError errors={state.fieldErrors?.vatRegistrationEffectiveDate} />
+            </label>
+            <label className="grid gap-2 text-sm font-semibold text-text">
+              Deregistration effective date
+              <input className={inputClass} type="date" name="vatDeregistrationEffectiveDate" defaultValue={dateValue(workspace.vatDeregistrationEffectiveDate)} disabled={!canManage || vatStatus !== "DEREGISTERED"} />
+              <FieldError errors={state.fieldErrors?.vatDeregistrationEffectiveDate} />
+            </label>
+          </div>
+          <div className="mt-5 rounded-lg bg-surface-muted p-4 text-sm leading-6 text-muted">
+            {businessActivity === "GOODS" ? "2026 guidance: the applicable goods-supplier VAT registration threshold is currently GH₵750,000. GRA determines final liability." : businessActivity === "SERVICES" ? "2026 guidance: service providers have no general VAT registration threshold. Confirm your position with GRA." : "2026 guidance: goods may use the current GH₵750,000 threshold, while service providers have no general threshold. Confirm your position with GRA."}
           </div>
       </section>
 

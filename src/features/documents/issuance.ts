@@ -8,14 +8,15 @@ import { businessDataTransactionOptions, lockBusinessResource } from "@/features
 import { consumeDocumentCapacityInTransaction } from "@/features/commercial/capacity";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
-import { calculateTrustedTax } from "@/features/tax/calculation";
+import { determineTaxPoint, isVatEligibleAtTaxPoint } from "@/features/tax/eligibility";
 import { resolveGhanaVatVersion } from "@/features/tax/resolver";
 import { buildTaxSnapshot } from "@/features/tax/snapshot";
+import type { TrustedTaxComponent, TrustedTaxVersion } from "@/features/tax/types";
 import { authorizeWorkspaceDocumentReadinessInTransaction } from "@/features/workspaces/document-readiness-service";
 import { evaluateWorkspaceDocumentReadiness } from "@/features/workspaces/document-readiness";
 import { generateVerificationCode } from "@/features/documents/verification/code";
 
-import { calculateDraftLine, calculateDraftTotals } from "./calculations";
+import { calculateDocumentLine, calculateDraftTotals, calculateNetPayable } from "./calculations";
 import { allocateOfficialDocumentNumber } from "./numbering";
 import { validateIssueReadinessInTransaction, workspaceIssuesForIssuance, type IssueReadinessError } from "./readiness";
 import { buildIssuedDocumentSnapshot, issuedDocumentSnapshotSchema } from "./snapshots";
@@ -98,23 +99,51 @@ async function issueDocumentOnce(input: {
       where: { id: documentId },
       include: { lines: { orderBy: { lineOrder: "asc" } } },
     });
-    if (!["INVOICE", "RECEIPT", "VAT_INVOICE"].includes(draft.type)) {
+    if (!["INVOICE", "RECEIPT", "VAT_INVOICE", "CREDIT_NOTE", "DEBIT_NOTE"].includes(draft.type)) {
       throw new DocumentIssueReadinessError([{ code: "UNSUPPORTED_TYPE", message: "This document type cannot be issued yet.", field: "type" }]);
     }
-    const documentType = draft.type as "INVOICE" | "RECEIPT" | "VAT_INVOICE";
-    const workspaceReadiness = evaluateWorkspaceDocumentReadiness({ workspace: authorization.workspace, documentType, isSuperAdmin: authorization.isSuperAdmin });
+    const documentType = draft.type as "INVOICE" | "RECEIPT" | "VAT_INVOICE" | "CREDIT_NOTE" | "DEBIT_NOTE";
+    const taxPointDate = determineTaxPoint({ supplyDate: draft.supplyDate ?? draft.draftDate, documentDate: draft.draftDate });
+    const workspaceReadiness = evaluateWorkspaceDocumentReadiness({ workspace: authorization.workspace, documentType, taxPointDate, isSuperAdmin: authorization.isSuperAdmin });
     if (!workspaceReadiness.ready) {
       throw new DocumentIssueReadinessError(workspaceIssuesForIssuance(workspaceReadiness.issues));
     }
     if (draft.isTestDocument !== workspaceReadiness.isTestWorkspace) {
       throw new DocumentIssueReadinessError([{ code: "TEST_STATUS_INVALID", message: "The document TEST status does not match its workspace and cannot be changed." }]);
     }
+    const supplierVatEligible = isVatEligibleAtTaxPoint(authorization.workspace, taxPointDate);
+    let taxVersion: TrustedTaxVersion | null = null;
+    let statutoryComponents: TrustedTaxComponent[] = [];
+    if (documentType === "CREDIT_NOTE" || documentType === "DEBIT_NOTE") {
+      const original = draft.originalDocumentId ? await transaction.document.findFirst({
+        where: { id: draft.originalDocumentId, workspaceId: input.workspaceId, status: "ISSUED", archivedAt: null, type: { notIn: ["CREDIT_NOTE", "DEBIT_NOTE"] } },
+        select: { taxVersionId: true, currency: true, snapshot: { select: { payload: true } } },
+      }) : null;
+      const originalSnapshot = original?.snapshot ? issuedDocumentSnapshotSchema.safeParse(original.snapshot.payload) : null;
+      if (!original || !originalSnapshot?.success || !draft.adjustmentReason) {
+        throw new DocumentIssueReadinessError([{ code: "ADJUSTMENT_REFERENCE_REQUIRED", message: "Select an issued original document and record the adjustment reason.", field: "originalDocumentId" }]);
+      }
+      if (original.currency !== draft.currency) {
+        throw new DocumentIssueReadinessError([{ code: "CURRENCY_MISMATCH", message: "The adjustment currency must match the original document.", field: "currency" }]);
+      }
+      statutoryComponents = originalSnapshot.data.tax?.components.map((component) => ({ code: component.code, name: component.name, rate: component.rate, calculationOrder: component.order, baseStrategy: component.baseStrategy, contributesToTaxableValue: false, contributesToTotal: true })) ?? [];
+      if (originalSnapshot.data.tax) taxVersion = { id: originalSnapshot.data.tax.version.id, version: originalSnapshot.data.tax.version.code, effectiveFrom: new Date(`${originalSnapshot.data.tax.version.effectiveFrom}T00:00:00.000Z`), effectiveTo: originalSnapshot.data.tax.version.effectiveTo ? new Date(`${originalSnapshot.data.tax.version.effectiveTo}T00:00:00.000Z`) : null, profile: originalSnapshot.data.tax.profile, components: statutoryComponents };
+    } else if (supplierVatEligible && (documentType === "VAT_INVOICE" || draft.lines.some((line) => line.taxTreatment === "STANDARD_RATED" && !line.reliefApplied))) {
+      taxVersion = await resolveGhanaVatVersion(taxPointDate, transaction);
+      statutoryComponents = taxVersion.components;
+    }
     let calculatedLines;
     try {
-      calculatedLines = draft.lines.map((line) => calculateDraftLine({
+      calculatedLines = draft.lines.map((line) => calculateDocumentLine({
         description: line.description,
         quantity: line.quantity.toString(),
         unitPrice: line.unitPrice.toString(),
+        discountAmount: line.discountAmount.toString(),
+        priceMode: draft.priceMode,
+        taxTreatment: line.taxTreatment,
+        reliefApplied: line.reliefApplied,
+        supplierVatEligible: documentType === "CREDIT_NOTE" || documentType === "DEBIT_NOTE" ? statutoryComponents.length > 0 : supplierVatEligible,
+        statutoryComponents,
         rate: line.rateTypeSnapshot && line.rateValueSnapshot
           ? { type: line.rateTypeSnapshot, value: line.rateValueSnapshot.toString() }
           : null,
@@ -123,48 +152,37 @@ async function issueDocumentOnce(input: {
       throw new DocumentIssueReadinessError([{ code: "CALCULATION_INVALID", message: "The draft contains invalid financial values.", field: "lines" }]);
     }
     const totals = calculateDraftTotals(calculatedLines);
-    let calculation: {
-      taxVersionId: string | null;
-      subtotal: Prisma.Decimal;
-      discountTotal: Prisma.Decimal;
-      rateTotal: Prisma.Decimal;
-      taxableValue: Prisma.Decimal;
-      taxTotal: Prisma.Decimal;
-      grandTotal: Prisma.Decimal;
-      taxCalculation: Prisma.InputJsonValue | typeof Prisma.JsonNull;
+    const withholding = calculateNetPayable(totals.grandTotal, draft.withholdingApplied, draft.withholdingAmount.toString());
+    const snapshotComponents = totals.taxComponents.length ? totals.taxComponents : taxVersion?.components.map((component) => ({ ...component, calculationBase: "0.00", amount: "0.00" })) ?? [];
+    const calculation = {
+      taxVersionId: taxVersion?.id ?? null,
+      subtotal: totals.subtotal,
+      discountTotal: totals.discountTotal,
+      rateTotal: totals.rateTotal,
+      taxableValue: totals.taxableValue,
+      taxTotal: totals.taxTotal,
+      grandTotal: totals.grandTotal,
+      standardRatedValue: totals.standardRatedValue,
+      zeroRatedValue: totals.zeroRatedValue,
+      exemptValue: totals.exemptValue,
+      relievedValue: totals.relievedValue,
+      withholdingAmount: withholding.withholdingAmount,
+      netPayable: withholding.netPayable,
+      taxPointDate: new Date(`${taxPointDate}T00:00:00.000Z`),
+      taxCalculation: taxVersion ? buildTaxSnapshot(taxVersion, { base: totals.taxableValue.toFixed(2), taxableValue: totals.taxableValue.toFixed(2), taxTotal: totals.taxTotal.toFixed(2), grossTotal: totals.taxableValue.add(totals.taxTotal).toFixed(2), components: snapshotComponents }) as unknown as Prisma.InputJsonValue : Prisma.JsonNull,
     };
-    if (documentType === "VAT_INVOICE") {
-      const taxVersion = await resolveGhanaVatVersion(draft.draftDate, transaction);
-      const trustedTax = calculateTrustedTax(totals.subtotal, taxVersion.components);
-      calculation = {
-        taxVersionId: taxVersion.id,
-        subtotal: totals.subtotal,
-        discountTotal: new Prisma.Decimal(0),
-        rateTotal: new Prisma.Decimal(0),
-        taxableValue: new Prisma.Decimal(trustedTax.taxableValue),
-        taxTotal: new Prisma.Decimal(trustedTax.taxTotal),
-        grandTotal: new Prisma.Decimal(trustedTax.grossTotal),
-        taxCalculation: buildTaxSnapshot(taxVersion, trustedTax) as unknown as Prisma.InputJsonValue,
-      };
-    } else {
-      calculation = {
-        taxVersionId: null,
-        subtotal: totals.subtotal,
-        discountTotal: totals.discountTotal,
-        rateTotal: totals.rateTotal,
-        taxableValue: totals.subtotal,
-        taxTotal: new Prisma.Decimal(0),
-        grandTotal: totals.grandTotal,
-        taxCalculation: Prisma.JsonNull,
-      };
-    }
 
     for (const [index, line] of draft.lines.entries()) {
       await transaction.documentLine.update({
         where: { id: line.id },
         data: {
           lineSubtotal: calculatedLines[index]!.lineSubtotal,
+          originalAmount: calculatedLines[index]!.originalAmount,
+          discountAmount: calculatedLines[index]!.discountAmount,
+          taxableBase: calculatedLines[index]!.taxableBase,
           rateTotal: calculatedLines[index]!.rateTotal,
+          taxTotal: calculatedLines[index]!.taxTotal,
+          taxCalculation: calculatedLines[index]!.taxComponents.length ? { components: calculatedLines[index]!.taxComponents.map((component) => ({ code: component.code, name: component.name, rate: component.rate, order: component.calculationOrder, baseStrategy: component.baseStrategy, calculationBase: component.calculationBase, amount: component.amount })) } as unknown as Prisma.InputJsonValue : Prisma.JsonNull,
           lineTotal: calculatedLines[index]!.lineTotal,
         },
       });
@@ -196,6 +214,7 @@ async function issueDocumentOnce(input: {
       include: {
         workspace: { include: { logo: true } },
         customer: true,
+        originalDocument: { select: { documentNumber: true, issueDate: true } },
         lines: { orderBy: { lineOrder: "asc" } },
       },
     });

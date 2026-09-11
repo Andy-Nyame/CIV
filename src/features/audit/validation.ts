@@ -5,6 +5,7 @@ import { AUDIT_ACTIONS, AUDIT_RESOURCE_TYPES } from "./registry";
 const displayNameSchema = z.string().trim().min(1).max(320);
 const emailSchema = z.string().trim().toLowerCase().email().max(320);
 const roleSchema = z.enum(["OWNER", "ADMIN", "MANAGER", "STAFF"]);
+const supportedDocumentTypeSchema = z.enum(["INVOICE", "RECEIPT", "VAT_INVOICE", "CREDIT_NOTE", "DEBIT_NOTE"]);
 const planCodeSchema = z.string().trim().min(1).max(50);
 const grantSourceSchema = z.enum([
   "AUTO_NEW_WORKSPACE",
@@ -141,13 +142,13 @@ export const auditMetadataSchemas = {
   DOCUMENT_CREATED: z.object({}).strict(),
   DOCUMENT_DRAFT_CREATED: z
     .object({
-      documentType: z.enum(["INVOICE", "RECEIPT", "VAT_INVOICE"]),
+      documentType: supportedDocumentTypeSchema,
       draftReference: z.string().trim().min(8).max(40),
     })
     .strict(),
   DOCUMENT_DRAFT_UPDATED: z
     .object({
-      documentType: z.enum(["INVOICE", "RECEIPT", "VAT_INVOICE"]),
+      documentType: supportedDocumentTypeSchema,
       draftReference: z.string().trim().min(8).max(40),
       total: z.string().regex(/^\d+(\.\d{1,4})?$/),
       currency: z.string().length(3),
@@ -158,7 +159,7 @@ export const auditMetadataSchemas = {
     .strict(),
   DOCUMENT_ISSUED: z
     .object({
-      documentType: z.enum(["INVOICE", "RECEIPT", "VAT_INVOICE"]),
+      documentType: supportedDocumentTypeSchema,
       documentNumber: z.string().trim().min(5).max(100),
       customerName: displayNameSchema.nullable(),
       total: z.string().regex(/^\d+(\.\d{1,4})?$/),

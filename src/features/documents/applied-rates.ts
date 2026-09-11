@@ -43,6 +43,10 @@ function addMoney(left: string, right: string) {
   return `${total / oneHundred}.${(total % oneHundred).toString().padStart(2, "0")}`;
 }
 
+function hasAppliedAmount(value: string) {
+  return !/^0+(\.0+)?$/.test(value.trim());
+}
+
 export function formatAppliedRateValue(input: {
   type: "PERCENTAGE" | "FIXED";
   value: string;
@@ -69,6 +73,7 @@ export function buildAppliedRateRows(input: {
   const customRows = new Map<string, AppliedRateRow>();
 
   for (const rate of input.customRates ?? []) {
+    if (!hasAppliedAmount(rate.amount)) continue;
     const name = rate.name?.trim() || "Custom rate";
     const value = trimDecimal(rate.value);
     const signature = `${name}\u0000${rate.type}\u0000${value}`;
@@ -90,7 +95,7 @@ export function buildAppliedRateRows(input: {
     });
   }
 
-  const statutoryRows = (input.statutoryRates ?? []).map((rate, index): AppliedRateRow => {
+  const statutoryRows = (input.statutoryRates ?? []).filter((rate) => hasAppliedAmount(rate.amount)).map((rate, index): AppliedRateRow => {
     const value = trimDecimal(rate.rate);
     const rateLabel = formatAppliedRateValue({ type: "PERCENTAGE", value, currency: input.currency });
     return {

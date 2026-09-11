@@ -114,7 +114,7 @@ test("Super Admin dashboard services are protected, bounded, safe, and TEST-awar
       assert.ok(dashboard.metrics.issuedDocuments >= 1);
       assert.ok(dashboard.metrics.testDocuments >= 1);
       assert.equal(dashboard.workspaces.length <= dashboard.pagination.pageSize, true);
-      assert.deepEqual(dashboard.system.documentTypes, ["INVOICE", "RECEIPT", "VAT_INVOICE"]);
+      assert.deepEqual(dashboard.system.documentTypes, ["INVOICE", "RECEIPT", "VAT_INVOICE", "CREDIT_NOTE", "DEBIT_NOTE"]);
       assert.match(dashboard.system.applicationEnvironment, /^(Development|Production)$/);
     });
 

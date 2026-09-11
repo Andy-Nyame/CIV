@@ -6,6 +6,7 @@ import { WorkspaceAuthorizationError } from "@/features/authorization/errors";
 import { BusinessDataValidationError } from "@/features/business-data/errors";
 import { createCatalogueItem, updateCatalogueItem } from "@/features/catalog/service";
 import { createCustomer, updateCustomer } from "@/features/customers/service";
+import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 
 import { calculateDraftLine, calculateDraftTotals } from "./calculations";
@@ -92,6 +93,8 @@ test("customers, catalogue entries, and drafts are isolated, authorized, snapsho
         taxpayerIdType: "GRA_TIN",
         taxpayerId: `TIN-${suffix.slice(0, 8)}`,
         vatRegistered: true,
+        vatRegistrationStatus: "REGISTERED",
+        vatRegistrationEffectiveDate: new Date("2026-01-01T00:00:00.000Z"),
         memberships: {
           create: [
             { userId: owner.id, role: "OWNER", status: "ACTIVE" },
@@ -194,7 +197,8 @@ test("customers, catalogue entries, and drafts are isolated, authorized, snapsho
     assert.equal(draft.type, "INVOICE");
     assert.equal(draft.subtotal.toFixed(4), "1110.5000");
     assert.equal(draft.rateTotal.toFixed(4), "25.0100");
-    assert.equal(draft.grandTotal.toFixed(4), "1135.5100");
+    assert.equal(draft.taxTotal.toFixed(4), "222.1000");
+    assert.equal(draft.grandTotal.toFixed(4), "1357.6100");
     assert.equal(draft.lines[2]?.description, "Logo Design");
     assert.equal(draft.lines[2]?.unitPrice.toFixed(4), "99.9900");
     assert.equal(draft.lines[3]?.rateNameSnapshot, "CREATE Test Rate");
@@ -245,8 +249,8 @@ test("customers, catalogue entries, and drafts are isolated, authorized, snapsho
       updateDraft({ actorUserId: owner.id, workspaceId: workspace.id, documentId: concurrentTarget.id, data: draftData({ lines: [{ catalogItemId: null, customRateId: null, description: "Concurrent A", quantity: "1", unitPrice: "5.00" }, { catalogItemId: null, customRateId: null, description: "Concurrent B", quantity: "2", unitPrice: "7.50" }] }) }),
     ]);
     const concurrentResult = await db.document.findUniqueOrThrow({ where: { id: concurrentTarget.id }, include: { lines: true } });
-    const persistedLineTotal = concurrentResult.lines.reduce((sum, line) => sum + Number(line.lineTotal.toString()), 0);
-    assert.equal(Number(concurrentResult.grandTotal.toString()), persistedLineTotal);
+    const persistedLineTotal = concurrentResult.lines.reduce((sum, line) => sum.add(line.lineTotal), new Prisma.Decimal(0));
+    assert.equal(concurrentResult.grandTotal.eq(persistedLineTotal), true);
     assert.ok(concurrentResult.lines.length === 1 || concurrentResult.lines.length === 2);
 
     await updateCustomer({

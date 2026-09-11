@@ -29,6 +29,10 @@ export async function getWorkspaceSettingsPageData() {
       taxpayerIdType: true,
       taxpayerId: true,
       taxpayerVerificationStatus: true,
+      businessActivity: true,
+      vatRegistrationStatus: true,
+      vatRegistrationEffectiveDate: true,
+      vatDeregistrationEffectiveDate: true,
       vatRegistered: true,
       archivedAt: true,
       logo: {

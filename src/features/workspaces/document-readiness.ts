@@ -1,4 +1,5 @@
 import type { DocumentType } from "@/generated/prisma/enums";
+import { isVatEligibleAtTaxPoint } from "@/features/tax/eligibility";
 
 export type WorkspaceReadinessRecord = {
   name: string;
@@ -9,6 +10,9 @@ export type WorkspaceReadinessRecord = {
   taxpayerIdType: "GHANA_CARD_PIN" | "GRA_TIN" | null;
   taxpayerId: string | null;
   vatRegistered: boolean;
+  vatRegistrationStatus?: "NOT_REGISTERED" | "PENDING" | "REGISTERED" | "DEREGISTERED";
+  vatRegistrationEffectiveDate?: Date | string | null;
+  vatDeregistrationEffectiveDate?: Date | string | null;
 };
 
 export type WorkspaceReadinessCode =
@@ -17,6 +21,7 @@ export type WorkspaceReadinessCode =
   | "ADDRESS_REQUIRED"
   | "TAXPAYER_ID_TYPE_INVALID"
   | "TAXPAYER_ID_REQUIRED"
+  | "VAT_EFFECTIVE_DATE_REQUIRED"
   | "VAT_REGISTRATION_REQUIRED";
 
 export type WorkspaceReadinessIssue = {
@@ -39,6 +44,7 @@ export function expectedTaxpayerIdType(type: WorkspaceReadinessRecord["type"]) {
 export function evaluateWorkspaceDocumentReadiness(input: {
   workspace: WorkspaceReadinessRecord;
   documentType?: DocumentType;
+  taxPointDate?: Date | string;
   isSuperAdmin: boolean;
 }) {
   const { workspace } = input;
@@ -77,11 +83,23 @@ export function evaluateWorkspaceDocumentReadiness(input: {
       field: "taxpayerId",
     });
   }
-  if (input.documentType === "VAT_INVOICE" && !workspace.vatRegistered) {
+  const legacyVatEligible = workspace.vatRegistrationStatus === undefined && workspace.vatRegistered;
+  const vatEligible = legacyVatEligible || (workspace.vatRegistrationStatus !== undefined && isVatEligibleAtTaxPoint({
+    vatRegistrationStatus: workspace.vatRegistrationStatus,
+    vatRegistrationEffectiveDate: workspace.vatRegistrationEffectiveDate ?? null,
+    vatDeregistrationEffectiveDate: workspace.vatDeregistrationEffectiveDate ?? null,
+  }, input.taxPointDate ?? new Date()));
+  if (input.documentType === "VAT_INVOICE" && workspace.vatRegistrationStatus === "REGISTERED" && !workspace.vatRegistrationEffectiveDate) {
+    issues.push({
+      code: "VAT_EFFECTIVE_DATE_REQUIRED",
+      message: "Add the VAT registration effective date before creating a VAT invoice.",
+      field: "vatRegistrationEffectiveDate",
+    });
+  } else if (input.documentType === "VAT_INVOICE" && !vatEligible) {
     issues.push({
       code: "VAT_REGISTRATION_REQUIRED",
-      message: "This workspace is not marked as VAT registered, so it cannot create VAT invoices.",
-      field: "vatRegistered",
+      message: "This workspace is not VAT eligible on the transaction tax date, so it cannot create a VAT invoice.",
+      field: "vatRegistrationStatus",
     });
   }
 

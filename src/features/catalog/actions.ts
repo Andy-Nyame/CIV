@@ -7,7 +7,7 @@ import { BusinessDataValidationError } from "@/features/business-data/errors";
 import { createCatalogueItem, updateCatalogueItem } from "./service";
 
 export type CatalogueFormState = { message?: string; errors?: Record<string, string[] | undefined> };
-const data = (form: FormData) => ({ name: form.get("name"), description: form.get("description"), type: form.get("type"), unitPrice: form.get("unitPrice"), currency: form.get("currency"), unitLabel: form.get("unitLabel"), sku: form.get("sku") });
+const data = (form: FormData) => ({ name: form.get("name"), description: form.get("description"), type: form.get("type"), unitPrice: form.get("unitPrice"), currency: form.get("currency"), unitLabel: form.get("unitLabel"), defaultTaxTreatment: form.get("defaultTaxTreatment"), taxTreatmentReason: form.get("taxTreatmentReason"), taxTreatmentReference: form.get("taxTreatmentReference"), sku: form.get("sku") });
 export async function saveCatalogueItemAction(itemId: string | null, _state: CatalogueFormState, form: FormData): Promise<CatalogueFormState> {
   try { const context = await requireCapability(CAPABILITIES.MANAGE_ITEMS); if (itemId) await updateCatalogueItem({ actorUserId: context.user.id, workspaceId: context.workspace.id, itemId, data: data(form) }); else await createCatalogueItem({ actorUserId: context.user.id, workspaceId: context.workspace.id, data: data(form) }); revalidatePath("/app/items"); }
   catch (error) { return error instanceof BusinessDataValidationError ? { message: "Check the highlighted information.", errors: error.fields } : { message: "Unable to save this catalogue entry." }; }

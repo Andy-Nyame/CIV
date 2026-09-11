@@ -7,7 +7,7 @@ import { db } from "@/lib/db";
 import { requireSuperAdminActor } from "./super-admin";
 
 export const SUPER_ADMIN_WORKSPACE_PAGE_SIZE = 20;
-export const CIV_DOCUMENT_TYPES = ["INVOICE", "RECEIPT", "VAT_INVOICE"] as const;
+export const CIV_DOCUMENT_TYPES = ["INVOICE", "RECEIPT", "VAT_INVOICE", "CREDIT_NOTE", "DEBIT_NOTE"] as const;
 
 export class SuperAdminWorkspaceNotFoundError extends Error {
   constructor() {
@@ -61,6 +61,9 @@ export async function getSuperAdminDashboard(input: {
       taxpayerId: true,
       taxpayerVerificationStatus: true,
       vatRegistered: true,
+      vatRegistrationStatus: true,
+      vatRegistrationEffectiveDate: true,
+      vatDeregistrationEffectiveDate: true,
       createdAt: true,
       archivedAt: true,
       memberships: {
@@ -136,6 +139,9 @@ export async function getSuperAdminWorkspaceDetail(input: {
         taxpayerId: true,
         taxpayerVerificationStatus: true,
         vatRegistered: true,
+        vatRegistrationStatus: true,
+        vatRegistrationEffectiveDate: true,
+        vatDeregistrationEffectiveDate: true,
         createdAt: true,
         updatedAt: true,
         archivedAt: true,

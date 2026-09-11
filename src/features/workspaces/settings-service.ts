@@ -48,12 +48,28 @@ export async function updateWorkspaceSettings(input: {
         taxpayerId: true,
         taxpayerIdType: true,
         taxpayerVerificationStatus: true,
+        businessActivity: true,
+        vatRegistrationStatus: true,
+        vatRegistrationEffectiveDate: true,
+        vatDeregistrationEffectiveDate: true,
         vatRegistered: true,
       },
     });
     const nextType = result.data.type ?? current.type;
+    const nextVatStatus = result.data.vatRegistrationStatus ?? current.vatRegistrationStatus;
     const data = {
       ...result.data,
+      ...(result.data.vatRegistrationStatus === undefined ? {} : { vatRegistered: nextVatStatus === "REGISTERED" }),
+      ...(result.data.vatRegistrationEffectiveDate === undefined ? {} : {
+        vatRegistrationEffectiveDate: result.data.vatRegistrationEffectiveDate
+          ? new Date(`${result.data.vatRegistrationEffectiveDate}T00:00:00.000Z`)
+          : null,
+      }),
+      ...(result.data.vatDeregistrationEffectiveDate === undefined ? {} : {
+        vatDeregistrationEffectiveDate: result.data.vatDeregistrationEffectiveDate
+          ? new Date(`${result.data.vatDeregistrationEffectiveDate}T00:00:00.000Z`)
+          : null,
+      }),
       ...(result.data.taxpayerId !== undefined || result.data.type !== undefined
         ? { taxpayerIdType: expectedTaxpayerIdType(nextType) }
         : {}),
@@ -66,7 +82,7 @@ export async function updateWorkspaceSettings(input: {
         : {}),
     };
     const changedFields = Object.entries(data)
-      .filter(([key, value]) => current[key as keyof typeof current] !== value)
+      .filter(([key, value]) => String(current[key as keyof typeof current] ?? "") !== String(value ?? ""))
       .map(([key]) => key);
 
     if (changedFields.length === 0) {
@@ -93,6 +109,10 @@ export async function updateWorkspaceSettings(input: {
         taxpayerId: true,
         taxpayerIdType: true,
         taxpayerVerificationStatus: true,
+        businessActivity: true,
+        vatRegistrationStatus: true,
+        vatRegistrationEffectiveDate: true,
+        vatDeregistrationEffectiveDate: true,
         vatRegistered: true,
       },
     });

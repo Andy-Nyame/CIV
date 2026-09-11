@@ -23,7 +23,7 @@ import {
 
 function snapshotFixture(overrides: {
   documentId?: string;
-  type?: "INVOICE" | "RECEIPT" | "VAT_INVOICE";
+  type?: "INVOICE" | "RECEIPT" | "VAT_INVOICE" | "CREDIT_NOTE" | "DEBIT_NOTE";
   isTestDocument?: boolean;
   customerId?: string | null;
   lineCount?: number;
@@ -52,7 +52,7 @@ function snapshotFixture(overrides: {
     document: {
       id: documentId,
       draftReference: `DRAFT-${documentId.slice(0, 8)}`,
-      documentNumber: type === "VAT_INVOICE" ? "VAT-000001" : type === "RECEIPT" ? "RCT-000001" : "INV-000001",
+      documentNumber: type === "VAT_INVOICE" ? "VAT-000001" : type === "RECEIPT" ? "REC-000001" : type === "CREDIT_NOTE" ? "CRN-000001" : type === "DEBIT_NOTE" ? "DBN-000001" : "INV-000001",
       type,
       status: "ISSUED",
       currency: "GHS",
@@ -135,7 +135,7 @@ function draftModelFixture(overrides: Parameters<typeof snapshotFixture>[0] = {}
 }
 
 test("issued PDF models render Invoice, Receipt, and VAT Invoice as one A4 document family", async () => {
-  for (const [type, title] of [["INVOICE", "Invoice"], ["RECEIPT", "Receipt"], ["VAT_INVOICE", "VAT Invoice"]] as const) {
+  for (const [type, title] of [["INVOICE", "Invoice"], ["RECEIPT", "Receipt"], ["VAT_INVOICE", "VAT Invoice"], ["CREDIT_NOTE", "Credit Note"], ["DEBIT_NOTE", "Debit Note"]] as const) {
     const model = buildIssuedDocumentPdfModel(snapshotFixture({ type }), false);
     assert.equal(model.title, title);
     const pdf = await PDFDocument.load(await renderIssuedDocumentPdf(model));
@@ -145,10 +145,10 @@ test("issued PDF models render Invoice, Receipt, and VAT Invoice as one A4 docum
 });
 
 test("draft PDF models support every current document type without verification identity", () => {
-  for (const type of ["INVOICE", "RECEIPT", "VAT_INVOICE"] as const) {
+  for (const type of ["INVOICE", "RECEIPT", "VAT_INVOICE", "CREDIT_NOTE", "DEBIT_NOTE"] as const) {
     const model = draftModelFixture({ type, verificationCode: "CIV-7K4M-92PX-H6Q2" });
     assert.equal(model.lifecycle, "DRAFT");
-    assert.equal(model.title, type === "VAT_INVOICE" ? "VAT Invoice" : type === "RECEIPT" ? "Receipt" : "Invoice");
+    assert.equal(model.title, type === "VAT_INVOICE" ? "VAT Invoice" : type === "RECEIPT" ? "Receipt" : type === "CREDIT_NOTE" ? "Credit Note" : type === "DEBIT_NOTE" ? "Debit Note" : "Invoice");
     assert.equal(model.verificationCode, null);
     assert.match(buildDocumentPdfFilename(model), /^CIV-DRAFT-/);
   }

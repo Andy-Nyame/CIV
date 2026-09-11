@@ -56,12 +56,26 @@ export const workspaceSettingsSchema = z.object({
   legalName: optionalTrimmedText(200).optional(),
   tradingName: optionalTrimmedText(200).optional(),
   taxpayerId: optionalTrimmedText(100).optional(),
+  businessActivity: z.enum(["GOODS", "SERVICES", "BOTH"]).optional(),
+  vatRegistrationStatus: z.enum(["NOT_REGISTERED", "PENDING", "REGISTERED", "DEREGISTERED"]).optional(),
+  vatRegistrationEffectiveDate: z.preprocess((value) => value === "" || value === null ? null : value, z.string().date().nullable()).optional(),
+  vatDeregistrationEffectiveDate: z.preprocess((value) => value === "" || value === null ? null : value, z.string().date().nullable()).optional(),
   vatRegistered: z
     .enum(["true", "false"])
     .transform((value) => value === "true")
     .optional(),
   registrationNumber: optionalTrimmedText(100),
   businessTin: optionalTrimmedText(100).optional(),
+}).superRefine((value, context) => {
+  if ((value.vatRegistrationStatus === "REGISTERED" || value.vatRegistrationStatus === "DEREGISTERED") && !value.vatRegistrationEffectiveDate) {
+    context.addIssue({ code: "custom", path: ["vatRegistrationEffectiveDate"], message: "Add the VAT registration effective date." });
+  }
+  if (value.vatRegistrationStatus === "DEREGISTERED" && !value.vatDeregistrationEffectiveDate) {
+    context.addIssue({ code: "custom", path: ["vatDeregistrationEffectiveDate"], message: "Add the deregistration effective date." });
+  }
+  if (value.vatDeregistrationEffectiveDate && value.vatRegistrationEffectiveDate && value.vatDeregistrationEffectiveDate < value.vatRegistrationEffectiveDate) {
+    context.addIssue({ code: "custom", path: ["vatDeregistrationEffectiveDate"], message: "Deregistration cannot predate registration." });
+  }
 });
 
 export const workspaceLifecycleConfirmationSchema = z.enum([

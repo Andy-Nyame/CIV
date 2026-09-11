@@ -90,6 +90,7 @@ export async function loadDocumentPdfSource(input: PdfInput) {
       snapshot: true,
       workspace: { include: { logo: true } },
       customer: true,
+      originalDocument: { select: { documentNumber: true, issueDate: true } },
       createdBy: { select: { name: true, email: true } },
       lines: { orderBy: { lineOrder: "asc" } },
     },
@@ -122,12 +123,12 @@ export async function loadDocumentPdfSource(input: PdfInput) {
     };
   }
 
-  if (!["INVOICE", "RECEIPT", "VAT_INVOICE"].includes(document.type)) {
+  if (!["INVOICE", "RECEIPT", "VAT_INVOICE", "CREDIT_NOTE", "DEBIT_NOTE"].includes(document.type)) {
     throw new DocumentPdfUnavailableError("DRAFT_DATA_UNAVAILABLE");
   }
-  const documentType = document.type as "INVOICE" | "RECEIPT" | "VAT_INVOICE";
+  const documentType = document.type as "INVOICE" | "RECEIPT" | "VAT_INVOICE" | "CREDIT_NOTE" | "DEBIT_NOTE";
 
-  const parsedTax = documentType === "VAT_INVOICE"
+  const parsedTax = document.taxCalculation
     ? documentTaxSnapshotSchema.safeParse(document.taxCalculation)
     : { success: true as const, data: null };
   if (!parsedTax.success) throw new DocumentPdfUnavailableError("DRAFT_DATA_UNAVAILABLE");
@@ -138,6 +139,17 @@ export async function loadDocumentPdfSource(input: PdfInput) {
       type: documentType,
       currency: document.currency,
       draftDate: document.draftDate.toISOString().slice(0, 10),
+      supplyDate: document.supplyDate?.toISOString().slice(0, 10) ?? null,
+      taxPointDate: document.taxPointDate?.toISOString().slice(0, 10) ?? null,
+      transactionType: document.transactionType,
+      priceMode: document.priceMode,
+      adjustment: document.originalDocumentId && document.adjustmentReason && document.originalDocument?.documentNumber && document.originalDocument.issueDate ? {
+        originalDocumentId: document.originalDocumentId,
+        originalDocumentNumber: document.originalDocument.documentNumber,
+        originalIssueDate: document.originalDocument.issueDate.toISOString().slice(0, 10),
+        reason: document.adjustmentReason,
+        direction: document.type === "CREDIT_NOTE" ? "REDUCE" : "INCREASE",
+      } : null,
       dueDate: document.dueDate?.toISOString().slice(0, 10) ?? null,
       notes: document.notes,
       isTestDocument: document.isTestDocument,
@@ -149,10 +161,18 @@ export async function loadDocumentPdfSource(input: PdfInput) {
     totals: {
       subtotal: document.subtotal.toFixed(2),
       discount: document.discountTotal.toFixed(2),
-      customRates: documentType === "VAT_INVOICE" ? "0.00" : document.rateTotal.toFixed(2),
+      customRates: document.rateTotal.toFixed(2),
       taxableValue: document.taxableValue.toFixed(2),
       trustedTax: document.taxTotal.toFixed(2),
       grandTotal: document.grandTotal.toFixed(2),
+      originalAmount: document.lines.reduce((sum, line) => sum.add(line.originalAmount), document.subtotal.sub(document.subtotal)).toFixed(2),
+      standardRatedValue: document.standardRatedValue.toFixed(2),
+      zeroRatedValue: document.zeroRatedValue.toFixed(2),
+      exemptValue: document.exemptValue.toFixed(2),
+      relievedValue: document.relievedValue.toFixed(2),
+      totalTaxInclusiveValue: document.subtotal.add(document.taxTotal).toFixed(2),
+      withholding: document.withholdingApplied && document.withholdingReference ? { amount: document.withholdingAmount.toFixed(2), reference: document.withholdingReference, date: document.withholdingDate?.toISOString().slice(0, 10) ?? null } : null,
+      netPayable: document.netPayable.toFixed(2),
     },
     preparedBy: document.createdBy.name?.trim() || document.createdBy.email || "Workspace member",
   });

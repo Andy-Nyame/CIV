@@ -6,6 +6,8 @@ const PREFIXES: Partial<Record<DocumentType, string>> = {
   INVOICE: "INV",
   RECEIPT: "REC",
   VAT_INVOICE: "VAT",
+  CREDIT_NOTE: "CRN",
+  DEBIT_NOTE: "DBN",
 };
 
 /**

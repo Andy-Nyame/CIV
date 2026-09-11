@@ -67,6 +67,8 @@ test("ISSUE Phase 1 is atomic, immutable, authorized, and exactly once under con
         taxpayerId: `TIN-${suffix.slice(0, 8)}`,
         businessTin: `TIN-${suffix.slice(0, 8)}`,
         vatRegistered: true,
+        vatRegistrationStatus: "REGISTERED",
+        vatRegistrationEffectiveDate: new Date("2026-01-01T00:00:00.000Z"),
         memberships: { create: [{ userId: ownerId, role: "OWNER", status: "ACTIVE" }, { userId: staffId, role: "STAFF", status: "ACTIVE" }] },
         subscription: { create: { planId: free.id, status: "BETA" } },
         documentAllowancePeriods: { create: { planId: free.id, periodStart, periodEnd: addUtcMonth(periodStart), allowance: free.documentLimit, used: 0 } },

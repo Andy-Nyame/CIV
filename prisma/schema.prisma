@@ -20,6 +20,19 @@ enum WorkspaceEnvironment {
   TEST
 }
 
+enum BusinessActivity {
+  GOODS
+  SERVICES
+  BOTH
+}
+
+enum VatRegistrationStatus {
+  NOT_REGISTERED
+  PENDING
+  REGISTERED
+  DEREGISTERED
+}
+
 enum TaxpayerIdType {
   GHANA_CARD_PIN
   GRA_TIN
@@ -55,8 +68,29 @@ enum DocumentType {
   INVOICE
   RECEIPT
   VAT_INVOICE
+  CREDIT_NOTE
+  DEBIT_NOTE
   QUOTATION
   TAX_INVOICE
+}
+
+enum GhanaTaxTreatment {
+  STANDARD_RATED
+  ZERO_RATED
+  EXEMPT
+}
+
+enum TaxPriceMode {
+  TAX_EXCLUSIVE
+  TAX_INCLUSIVE
+}
+
+enum TransactionType {
+  SALE
+  SERVICE
+  HIRE_OR_LEASE
+  EXCHANGE
+  OTHER
 }
 
 enum ItemServiceType {
@@ -411,6 +445,11 @@ model Workspace {
   taxpayerIdType               TaxpayerIdType?
   taxpayerId                   String?                            @db.VarChar(100)
   taxpayerVerificationStatus   TaxpayerVerificationStatus         @default(UNVERIFIED)
+  businessActivity             BusinessActivity                    @default(BOTH)
+  vatRegistrationStatus        VatRegistrationStatus               @default(NOT_REGISTERED)
+  vatRegistrationEffectiveDate DateTime?                           @db.Date
+  vatDeregistrationEffectiveDate DateTime?                          @db.Date
+  /// Legacy compatibility mirror. New eligibility decisions use vatRegistrationStatus and effective dates.
   vatRegistered                Boolean                            @default(false)
   createdAt                    DateTime                           @default(now()) @db.Timestamptz(3)
   updatedAt                    DateTime                           @updatedAt @db.Timestamptz(3)
@@ -502,6 +541,9 @@ model Customer {
   phone           String?    @db.VarChar(50)
   address         String?    @db.Text
   businessTin     String?    @db.VarChar(100)
+  taxpayerIdType  TaxpayerIdType?
+  taxpayerId      String?    @db.VarChar(100)
+  vatRegistrationStatus VatRegistrationStatus?
   notes           String?    @db.Text
   createdAt       DateTime   @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime   @updatedAt @db.Timestamptz(3)
@@ -526,6 +568,9 @@ model ItemService {
   unitPrice       Decimal         @db.Decimal(19, 4)
   currency        String          @default("GHS") @db.Char(3)
   unitLabel       String?         @db.VarChar(50)
+  defaultTaxTreatment GhanaTaxTreatment @default(STANDARD_RATED)
+  taxTreatmentReason String?      @db.VarChar(500)
+  taxTreatmentReference String?   @db.VarChar(500)
   sku             String?         @db.VarChar(100)
   createdAt       DateTime        @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime        @updatedAt @db.Timestamptz(3)
@@ -625,7 +670,12 @@ model Document {
   customerPhone   String?           @db.VarChar(50)
   customerAddress String?           @db.Text
   customerBusinessTin String?       @db.VarChar(100)
+  customerTaxpayerIdType TaxpayerIdType?
+  customerTaxpayerId String?        @db.VarChar(100)
+  customerVatRegistrationStatus VatRegistrationStatus?
   taxVersionId    String?           @db.Uuid
+  originalDocumentId String?        @db.Uuid
+  adjustmentReason String?          @db.VarChar(1000)
   type            DocumentType
   status          DocumentStatus    @default(DRAFT)
   isTestDocument  Boolean           @default(false)
@@ -637,6 +687,10 @@ model Document {
   issueDate       DateTime?         @db.Date
   draftDate       DateTime          @default(now()) @db.Date
   dueDate         DateTime?         @db.Date
+  supplyDate      DateTime?         @db.Timestamptz(3)
+  taxPointDate    DateTime?         @db.Timestamptz(3)
+  transactionType TransactionType   @default(SALE)
+  priceMode       TaxPriceMode      @default(TAX_EXCLUSIVE)
   notes           String?           @db.Text
   subtotal        Decimal           @default(0) @db.Decimal(19, 4)
   discountTotal   Decimal           @default(0) @db.Decimal(19, 4)
@@ -645,6 +699,15 @@ model Document {
   taxTotal        Decimal           @default(0) @db.Decimal(19, 4)
   taxCalculation  Json?
   grandTotal      Decimal           @default(0) @db.Decimal(19, 4)
+  standardRatedValue Decimal         @default(0) @db.Decimal(19, 4)
+  zeroRatedValue  Decimal            @default(0) @db.Decimal(19, 4)
+  exemptValue     Decimal            @default(0) @db.Decimal(19, 4)
+  relievedValue   Decimal            @default(0) @db.Decimal(19, 4)
+  withholdingApplied Boolean         @default(false)
+  withholdingAmount Decimal          @default(0) @db.Decimal(19, 4)
+  withholdingReference String?       @db.VarChar(500)
+  withholdingDate DateTime?          @db.Date
+  netPayable      Decimal             @default(0) @db.Decimal(19, 4)
   createdAt       DateTime          @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
   archivedAt      DateTime?         @db.Timestamptz(3)
@@ -655,6 +718,8 @@ model Document {
   issuedBy        User?             @relation("DocumentIssuer", fields: [issuedByUserId], references: [id], onDelete: Restrict)
   customer        Customer?         @relation(fields: [customerId], references: [id], onDelete: Restrict)
   taxVersion      TaxVersion?       @relation(fields: [taxVersionId], references: [id], onDelete: Restrict)
+  originalDocument Document?        @relation("DocumentAdjustments", fields: [originalDocumentId], references: [id], onDelete: Restrict)
+  adjustments     Document[]        @relation("DocumentAdjustments")
   lines           DocumentLine[]
   snapshot        DocumentSnapshot?
   files           DocumentFile[]
@@ -672,6 +737,7 @@ model Document {
   @@index([createdByUserId])
   @@index([issuedByUserId])
   @@index([taxVersionId])
+  @@index([originalDocumentId])
 }
 
 model DocumentNumberSequence {
@@ -695,11 +761,23 @@ model DocumentLine {
   description       String       @db.Text
   quantity          Decimal      @default(1) @db.Decimal(19, 6)
   unitPrice         Decimal      @db.Decimal(19, 4)
+  unitOfMeasure     String?      @db.VarChar(50)
+  taxTreatment      GhanaTaxTreatment @default(STANDARD_RATED)
+  taxTreatmentReason String?     @db.VarChar(500)
+  taxTreatmentReference String?  @db.VarChar(500)
+  reliefApplied     Boolean      @default(false)
+  reliefReason      String?      @db.VarChar(500)
+  reliefReference   String?      @db.VarChar(500)
+  originalAmount    Decimal      @default(0) @db.Decimal(19, 4)
+  discountAmount    Decimal      @default(0) @db.Decimal(19, 4)
   lineSubtotal      Decimal      @db.Decimal(19, 4)
+  taxableBase       Decimal      @default(0) @db.Decimal(19, 4)
   rateNameSnapshot  String?      @db.VarChar(200)
   rateTypeSnapshot  RateType?
   rateValueSnapshot Decimal?     @db.Decimal(19, 6)
   rateTotal         Decimal      @default(0) @db.Decimal(19, 4)
+  taxTotal          Decimal      @default(0) @db.Decimal(19, 4)
+  taxCalculation    Json?
   lineTotal         Decimal      @db.Decimal(19, 4)
   lineOrder         Int
   createdAt         DateTime     @default(now()) @db.Timestamptz(3)

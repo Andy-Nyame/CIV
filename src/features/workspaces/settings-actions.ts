@@ -89,7 +89,10 @@ export async function updateWorkspaceSettingsAction(
         legalName: formData.get("legalName"),
         tradingName: formData.get("tradingName"),
         taxpayerId: formData.get("taxpayerId"),
-        vatRegistered: formData.get("vatRegistered"),
+        businessActivity: formData.get("businessActivity"),
+        vatRegistrationStatus: formData.get("vatRegistrationStatus"),
+        vatRegistrationEffectiveDate: formData.get("vatRegistrationEffectiveDate"),
+        vatDeregistrationEffectiveDate: formData.get("vatDeregistrationEffectiveDate"),
         registrationNumber: formData.get("registrationNumber"),
       },
     });

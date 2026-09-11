@@ -60,7 +60,7 @@ export async function listWorkspaceCustomerSuggestions(workspaceId: string, curr
 
 export async function getDraftEditorData(
   documentId?: string,
-  requestedType?: "INVOICE" | "RECEIPT" | "VAT_INVOICE",
+  requestedType?: "INVOICE" | "RECEIPT" | "VAT_INVOICE" | "CREDIT_NOTE" | "DEBIT_NOTE",
 ) {
   const context = await requireCapability(documentId ? CAPABILITIES.UPDATE_DRAFT_DOCUMENT : CAPABILITIES.CREATE_DOCUMENT);
   const access = getDocumentAccessFilter({ role: context.membership.role, userId: context.user.id, workspaceId: context.workspace.id });
@@ -70,9 +70,9 @@ export async function getDraftEditorData(
   const existingRateIds = document?.lines.flatMap(({ customRateId }) => customRateId ? [customRateId] : []) ?? [];
   const relevantDate = document?.draftDate ?? new Date();
   const requiresVat = document?.type === "VAT_INVOICE" || requestedType === "VAT_INVOICE";
-  const [customers, items, rates, trustedTaxVersion, creationReadiness, vatCreationReadiness] = await Promise.all([
+  const [customers, items, rates, trustedTaxVersion, creationReadiness, vatCreationReadiness, workspaceTaxState, originalDocuments] = await Promise.all([
     listWorkspaceCustomerSuggestions(context.workspace.id, document?.customerId),
-    db.itemService.findMany({ where: { workspaceId: context.workspace.id, OR: [{ archivedAt: null }, { id: { in: existingCatalogueItemIds } }] }, orderBy: { name: "asc" }, take: 200, select: { id: true, name: true, description: true, unitPrice: true, currency: true, unitLabel: true } }),
+    db.itemService.findMany({ where: { workspaceId: context.workspace.id, OR: [{ archivedAt: null }, { id: { in: existingCatalogueItemIds } }] }, orderBy: { name: "asc" }, take: 200, select: { id: true, name: true, description: true, unitPrice: true, currency: true, unitLabel: true, defaultTaxTreatment: true, taxTreatmentReason: true, taxTreatmentReference: true } }),
     db.customRate.findMany({ where: { workspaceId: context.workspace.id, OR: [{ isActive: true }, { id: { in: existingRateIds } }] }, orderBy: { name: "asc" }, take: 100, select: { id: true, name: true, type: true, value: true } }),
     requiresVat
       ? resolveGhanaVatVersion(relevantDate)
@@ -81,12 +81,21 @@ export async function getDraftEditorData(
       actorUserId: context.user.id,
       workspaceId: context.workspace.id,
       documentType: document?.type ?? requestedType,
+      taxPointDate: relevantDate,
     }),
     getWorkspaceDocumentReadiness({
       actorUserId: context.user.id,
       workspaceId: context.workspace.id,
       documentType: "VAT_INVOICE",
+      taxPointDate: relevantDate,
+    }),
+    db.workspace.findUniqueOrThrow({ where: { id: context.workspace.id }, select: { vatRegistrationStatus: true, vatRegistrationEffectiveDate: true, vatDeregistrationEffectiveDate: true } }),
+    db.document.findMany({
+      where: { workspaceId: context.workspace.id, status: "ISSUED", archivedAt: null, type: { in: ["INVOICE", "RECEIPT", "VAT_INVOICE"] } },
+      orderBy: [{ issuedAt: "desc" }, { id: "desc" }],
+      take: 100,
+      select: { id: true, documentNumber: true, type: true, issueDate: true, currency: true },
     }),
   ]);
-  return { context, customers, items, rates, document, trustedTaxVersion, creationReadiness, vatCreationReadiness };
+  return { context, customers, items, rates, document, trustedTaxVersion, creationReadiness, vatCreationReadiness, workspaceTaxState, originalDocuments };
 }

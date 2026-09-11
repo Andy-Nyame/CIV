@@ -6,20 +6,25 @@ import {
   type AppliedRateRow,
 } from "@/features/documents/applied-rates";
 
-export type PdfDocumentType = "INVOICE" | "RECEIPT" | "VAT_INVOICE";
+export type PdfDocumentType = "INVOICE" | "RECEIPT" | "VAT_INVOICE" | "CREDIT_NOTE" | "DEBIT_NOTE";
 
 export type PdfLogoReference = NonNullable<IssuedDocumentSnapshot["issuer"]["logo"]>;
 
 export type DocumentPdfModel = {
   lifecycle: "DRAFT" | "ISSUED";
-  title: "Invoice" | "Receipt" | "VAT Invoice";
+  title: "Invoice" | "Receipt" | "VAT Invoice" | "Credit Note" | "Debit Note";
   number: string;
   currency: string;
   issueDate: string;
+  supplyDate: string | null;
+  taxPointDate: string | null;
   dueDate: string | null;
   issuedAt: string | null;
   isTestDocument: boolean;
   logo: PdfLogoReference | null;
+  transactionType: "SALE" | "SERVICE" | "HIRE_OR_LEASE" | "EXCHANGE" | "OTHER";
+  priceMode: "TAX_EXCLUSIVE" | "TAX_INCLUSIVE";
+  adjustment: IssuedDocumentSnapshot["document"]["adjustment"];
   issuer: {
     legalName: string;
     tradingName: string | null;
@@ -31,6 +36,7 @@ export type DocumentPdfModel = {
     taxpayerId: string | null;
     taxpayerVerificationStatus: "UNVERIFIED" | "VERIFIED" | null;
     vatRegistered: boolean | null;
+    vatRegistrationStatus: "NOT_REGISTERED" | "PENDING" | "REGISTERED" | "DEREGISTERED" | null;
   };
   customer: {
     name: string;
@@ -38,12 +44,23 @@ export type DocumentPdfModel = {
     email: string | null;
     phone: string | null;
     taxpayerId: string | null;
+    taxpayerIdLabel: "Ghana Card PIN" | "GRA TIN" | null;
+    vatRegistrationStatus: "NOT_REGISTERED" | "PENDING" | "REGISTERED" | "DEREGISTERED" | null;
   } | null;
   lines: Array<{
     order: number;
     description: string;
     quantity: string;
     unitPrice: string;
+    unitOfMeasure: string | null;
+    originalAmount: string;
+    discount: string;
+    taxTreatment: "STANDARD_RATED" | "ZERO_RATED" | "EXEMPT";
+    taxTreatmentReason: string | null;
+    taxTreatmentReference: string | null;
+    relief: { reason: string; reference: string } | null;
+    taxableBase: string;
+    taxAmount: string;
     rateLabel: string | null;
     rateAmount: string | null;
     total: string;
@@ -66,6 +83,8 @@ const titles: Record<PdfDocumentType, IssuedDocumentPdfModel["title"]> = {
   INVOICE: "Invoice",
   RECEIPT: "Receipt",
   VAT_INVOICE: "VAT Invoice",
+  CREDIT_NOTE: "Credit Note",
+  DEBIT_NOTE: "Debit Note",
 };
 
 export function buildIssuedDocumentPdfModel(
@@ -85,12 +104,17 @@ export function buildIssuedDocumentPdfModel(
     number: snapshot.document.documentNumber,
     currency: snapshot.document.currency,
     issueDate: snapshot.document.issueDate,
+    supplyDate: snapshot.document.supplyDate,
+    taxPointDate: snapshot.document.taxPointDate,
     dueDate: snapshot.document.dueDate,
     issuedAt: snapshot.document.issuedAt,
     // Either persisted flag is sufficient to retain the safety marking. A caller
     // cannot downgrade a TEST snapshot by changing request parameters or UI state.
     isTestDocument: persistedIsTestDocument || snapshot.document.isTestDocument,
     logo: snapshot.issuer.logo,
+    transactionType: snapshot.document.transactionType,
+    priceMode: snapshot.document.priceMode,
+    adjustment: snapshot.document.adjustment,
     issuer: {
       legalName: snapshot.issuer.legalName ?? snapshot.issuer.displayName,
       tradingName: snapshot.issuer.tradingName,
@@ -102,19 +126,31 @@ export function buildIssuedDocumentPdfModel(
       taxpayerId,
       taxpayerVerificationStatus: snapshot.issuer.taxpayerVerificationStatus,
       vatRegistered: snapshot.issuer.vatRegistered,
+      vatRegistrationStatus: snapshot.issuer.vatRegistrationStatus,
     },
     customer: snapshot.customer ? {
       name: snapshot.customer.name,
       address: snapshot.customer.address,
       email: snapshot.customer.email,
       phone: snapshot.customer.phone,
-      taxpayerId: snapshot.customer.businessTin,
+      taxpayerId: snapshot.customer.taxpayerId ?? snapshot.customer.businessTin,
+      taxpayerIdLabel: snapshot.customer.taxpayerIdType === "GHANA_CARD_PIN" ? "Ghana Card PIN" : snapshot.customer.taxpayerIdType === "GRA_TIN" || snapshot.customer.taxpayerId || snapshot.customer.businessTin ? "GRA TIN" : null,
+      vatRegistrationStatus: snapshot.customer.vatRegistrationStatus,
     } : null,
     lines: snapshot.lines.map((line) => ({
       order: line.order,
       description: line.description,
       quantity: line.quantity,
       unitPrice: line.unitPrice,
+      unitOfMeasure: line.unitOfMeasure,
+      originalAmount: line.originalAmount === "0.00" ? line.subtotal : line.originalAmount,
+      discount: line.discount,
+      taxTreatment: line.taxTreatment,
+      taxTreatmentReason: line.taxTreatmentReason,
+      taxTreatmentReference: line.taxTreatmentReference,
+      relief: line.relief,
+      taxableBase: line.taxableBase === "0.00" && snapshot.snapshotVersion === 1 ? line.subtotal : line.taxableBase,
+      taxAmount: line.tax?.amount ?? "0.00",
       rateLabel: line.customRate ? formatAppliedRateLabel({ ...line.customRate, currency: snapshot.document.currency }) : null,
       rateAmount: line.customRate?.amount ?? null,
       total: line.total,
@@ -143,6 +179,11 @@ export function buildDraftDocumentPdfModel(input: {
     type: PdfDocumentType;
     currency: string;
     draftDate: string;
+    supplyDate?: string | null;
+    taxPointDate?: string | null;
+    transactionType?: "SALE" | "SERVICE" | "HIRE_OR_LEASE" | "EXCHANGE" | "OTHER";
+    priceMode?: "TAX_EXCLUSIVE" | "TAX_INCLUSIVE";
+    adjustment?: IssuedDocumentSnapshot["document"]["adjustment"];
     dueDate: string | null;
     notes: string | null;
     isTestDocument: boolean;
@@ -174,10 +215,15 @@ export function buildDraftDocumentPdfModel(input: {
     number: input.document.draftReference,
     currency: input.document.currency,
     issueDate: input.document.draftDate,
+    supplyDate: input.document.supplyDate ?? null,
+    taxPointDate: input.document.taxPointDate ?? null,
     dueDate: input.document.dueDate,
     issuedAt: null,
     isTestDocument: input.document.isTestDocument,
     logo: input.issuer.logo,
+    transactionType: input.document.transactionType ?? "SALE",
+    priceMode: input.document.priceMode ?? "TAX_EXCLUSIVE",
+    adjustment: input.document.adjustment ?? null,
     issuer: {
       legalName: input.issuer.legalName ?? input.issuer.displayName,
       tradingName: input.issuer.tradingName,
@@ -189,19 +235,31 @@ export function buildDraftDocumentPdfModel(input: {
       taxpayerId,
       taxpayerVerificationStatus: input.issuer.taxpayerVerificationStatus,
       vatRegistered: input.issuer.vatRegistered,
+      vatRegistrationStatus: input.issuer.vatRegistrationStatus,
     },
     customer: input.customer ? {
       name: input.customer.name,
       address: input.customer.address,
       email: input.customer.email,
       phone: input.customer.phone,
-      taxpayerId: input.customer.businessTin,
+      taxpayerId: input.customer.taxpayerId ?? input.customer.businessTin,
+      taxpayerIdLabel: input.customer.taxpayerIdType === "GHANA_CARD_PIN" ? "Ghana Card PIN" : input.customer.taxpayerIdType === "GRA_TIN" || input.customer.taxpayerId || input.customer.businessTin ? "GRA TIN" : null,
+      vatRegistrationStatus: input.customer.vatRegistrationStatus,
     } : null,
     lines: input.lines.map((line) => ({
       order: line.order,
       description: line.description,
       quantity: line.quantity,
       unitPrice: line.unitPrice,
+      unitOfMeasure: line.unitOfMeasure,
+      originalAmount: line.originalAmount === "0.00" ? line.subtotal : line.originalAmount,
+      discount: line.discount,
+      taxTreatment: line.taxTreatment,
+      taxTreatmentReason: line.taxTreatmentReason,
+      taxTreatmentReference: line.taxTreatmentReference,
+      relief: line.relief,
+      taxableBase: line.taxableBase,
+      taxAmount: line.tax?.amount ?? "0.00",
       rateLabel: line.customRate ? formatAppliedRateLabel({ ...line.customRate, currency: input.document.currency }) : null,
       rateAmount: line.customRate?.amount ?? null,
       total: line.total,

@@ -40,6 +40,8 @@ test("customer details are document-first, reusable, isolated, and snapshotted",
         taxpayerId: `ISSUER-${suffix.slice(0, 8)}`,
         businessTin: `ISSUER-${suffix.slice(0, 8)}`,
         vatRegistered: true,
+        vatRegistrationStatus: "REGISTERED",
+        vatRegistrationEffectiveDate: new Date("2026-01-01T00:00:00.000Z"),
         memberships: { create: { userId: user.id, role: "OWNER", status: "ACTIVE" } },
         subscription: { create: { planId: free.id, status: "BETA" } },
         documentAllowancePeriods: {

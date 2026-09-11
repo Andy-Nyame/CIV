@@ -15,7 +15,12 @@ function parse(form: FormData) {
   return {
     type: form.get("type"), customerId: form.get("customerId"),
     customerName: form.get("customerName"),
-    currency: form.get("currency"), draftDate: form.get("draftDate"), dueDate: form.get("dueDate"), notes: form.get("notes"), lines,
+    currency: form.get("currency"), draftDate: form.get("draftDate"), supplyDate: form.get("supplyDate"), dueDate: form.get("dueDate"),
+    transactionType: form.get("transactionType"), priceMode: form.get("priceMode"),
+    originalDocumentId: form.get("originalDocumentId"), adjustmentReason: form.get("adjustmentReason"),
+    withholdingApplied: form.get("withholdingApplied"), withholdingAmount: form.get("withholdingAmount"),
+    withholdingReference: form.get("withholdingReference"), withholdingDate: form.get("withholdingDate"),
+    notes: form.get("notes"), lines,
   };
 }
 export async function saveDraftAction(documentId: string | null, _state: DraftFormState, form: FormData): Promise<DraftFormState> {
