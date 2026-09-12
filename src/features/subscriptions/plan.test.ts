@@ -281,6 +281,8 @@ test("free/custom switching, paid-checkout boundary, downgrade safety, isolation
           issuedAt: new Date(),
           issuedByUserId: documentOwner.id,
           voidedAt: new Date(),
+          voidedByUserId: documentOwner.id,
+          voidReason: "Voided test fixture for plan usage accounting.",
         },
         ...Array.from({ length: 3 }, (_, index) => ({
           workspaceId: documentWorkspace.id,
