@@ -108,22 +108,26 @@ async function prepareRecurringCheckout(input: {
       input.actorUserId,
       input.workspaceId,
     );
-    const [subscription, targetPlan, memberUsage, allowance] = await Promise.all([
-      transaction.subscription.findUnique({
-        where: { workspaceId: input.workspaceId },
-        include: { plan: true },
-      }),
-      transaction.plan.findUnique({ where: { code: planCode.data } }),
-      getWorkspaceMemberCapacityUsage(transaction, input.workspaceId),
-      transaction.workspaceDocumentAllowancePeriod.findFirst({
+    const subscription = await transaction.subscription.findUnique({
+      where: { workspaceId: input.workspaceId },
+      include: { plan: true },
+    });
+    const targetPlan = await transaction.plan.findUnique({
+      where: { code: planCode.data },
+    });
+    const memberUsage = await getWorkspaceMemberCapacityUsage(
+      transaction,
+      input.workspaceId,
+    );
+    const allowance =
+      await transaction.workspaceDocumentAllowancePeriod.findFirst({
         where: {
           workspaceId: input.workspaceId,
           periodStart: { lte: new Date() },
           periodEnd: { gt: new Date() },
         },
         orderBy: { periodStart: "desc" },
-      }),
-    ]);
+      });
     if (
       !subscription ||
       !targetPlan?.isActive ||
@@ -327,28 +331,36 @@ export async function fulfillRecurringSubscriptionPayment(paymentId: string) {
     await lockPayment(transaction, paymentId);
     const payment = await transaction.payment.findUnique({
       where: { id: paymentId },
-      include: {
-        subscriptionChange: { include: { targetPlan: true } },
-        attempts: { orderBy: { createdAt: "desc" }, take: 1 },
-      },
     });
     if (
       !payment ||
       payment.status !== "SUCCEEDED" ||
       payment.purpose !== "SUBSCRIPTION_INITIAL" ||
-      !payment.subscriptionChange
+      !payment.subscriptionChangeId
     ) {
       throw new SubscriptionPaymentError("SUBSCRIPTION_UNAVAILABLE");
     }
-    const change = payment.subscriptionChange;
+    const change = await transaction.subscriptionChange.findUnique({
+      where: { id: payment.subscriptionChangeId },
+    });
+    if (!change) {
+      throw new SubscriptionPaymentError("SUBSCRIPTION_UNAVAILABLE");
+    }
+    const targetPlan = await transaction.plan.findUniqueOrThrow({
+      where: { id: change.targetPlanId },
+    });
+    const latestAttempt = await transaction.paymentAttempt.findFirst({
+      where: { paymentId: payment.id },
+      orderBy: { createdAt: "desc" },
+    });
     await lockWorkspaceCommercialAccount(transaction, change.workspaceId);
     await lockWorkspaceTrials(transaction, change.workspaceId);
     if (
       payment.workspaceId !== change.workspaceId ||
       !payment.amount.equals(change.priceSnapshot) ||
       payment.currency !== change.currencySnapshot ||
-      change.targetPlan.billingMode !== "RECURRING" ||
-      change.targetPlan.paystackPlanCode !== change.providerPlanCodeSnapshot
+      targetPlan.billingMode !== "RECURRING" ||
+      targetPlan.paystackPlanCode !== change.providerPlanCodeSnapshot
     ) {
       throw new SubscriptionPaymentError("FULFILLMENT_MISMATCH");
     }
@@ -376,7 +388,7 @@ export async function fulfillRecurringSubscriptionPayment(paymentId: string) {
       : await transaction.plan.findUnique({ where: { code: "FREE" } });
     if (!fallbackPlan) throw new SubscriptionPaymentError("PLAN_UNAVAILABLE");
     const customerCode = jsonText(
-      payment.attempts[0]?.responseMetadata ?? null,
+      latestAttempt?.responseMetadata ?? null,
       "customerCode",
     ) ?? change.providerCustomerCode;
 
@@ -482,13 +494,13 @@ export async function fulfillRecurringSubscriptionPayment(paymentId: string) {
         planId: change.targetPlanId,
         periodStart,
         periodEnd: paidPeriodEnd,
-        allowance: change.targetPlan.documentLimit,
+        allowance: targetPlan.documentLimit,
         used: issuedInPaidPeriod,
       },
       update: {
         planId: change.targetPlanId,
         periodEnd: paidPeriodEnd,
-        allowance: change.targetPlan.documentLimit,
+        allowance: targetPlan.documentLimit,
       },
     });
     await recordAuditEvent(transaction, {
@@ -577,32 +589,39 @@ export async function applySubscriptionFallbackInTransaction(
 ) {
   const subscription = await transaction.subscription.findUnique({
     where: { id: subscriptionId },
-    include: { plan: true, fallbackPlan: true, workspace: true },
   });
-  if (!subscription?.fallbackPlan) return null;
+  if (!subscription?.fallbackPlanId) return null;
+  const plan = await transaction.plan.findUniqueOrThrow({
+    where: { id: subscription.planId },
+  });
+  const fallbackPlan = await transaction.plan.findUniqueOrThrow({
+    where: { id: subscription.fallbackPlanId },
+  });
+  const workspace = await transaction.workspace.findUniqueOrThrow({
+    where: { id: subscription.workspaceId },
+  });
   if (
     subscription.planId === subscription.fallbackPlanId &&
     subscription.status === "CANCELLED"
   ) {
-    return subscription;
+    return { ...subscription, plan, fallbackPlan, workspace };
   }
-  const previousPlan = subscription.plan.code;
-  const updated = await transaction.subscription.update({
+  const previousPlan = plan.code;
+  const updatedSubscription = await transaction.subscription.update({
     where: { id: subscription.id },
     data: {
-      planId: subscription.fallbackPlan.id,
+      planId: fallbackPlan.id,
       pendingPlanId: null,
       status: "CANCELLED",
       cancelAtPeriodEnd: true,
       endsAt: now,
       nextPaymentAt: null,
     },
-    include: { plan: true, fallbackPlan: true, workspace: true },
   });
   await updateCurrentAllowance(
     transaction,
     subscription.workspaceId,
-    subscription.fallbackPlan,
+    fallbackPlan,
     now,
   );
   await recordAuditEvent(transaction, {
@@ -613,10 +632,10 @@ export async function applySubscriptionFallbackInTransaction(
     resourceId: subscription.id,
     metadata: {
       fromPlan: previousPlan,
-      toPlan: subscription.fallbackPlan.code,
+      toPlan: fallbackPlan.code,
     },
   });
-  if (previousPlan !== subscription.fallbackPlan.code) {
+  if (previousPlan !== fallbackPlan.code) {
     await recordAuditEvent(transaction, {
       workspaceId: subscription.workspaceId,
       actorUserId: null,
@@ -625,7 +644,7 @@ export async function applySubscriptionFallbackInTransaction(
       resourceId: subscription.id,
       metadata: {
         fromPlan: previousPlan,
-        toPlan: subscription.fallbackPlan.code,
+        toPlan: fallbackPlan.code,
       },
     });
   }
@@ -635,11 +654,16 @@ export async function applySubscriptionFallbackInTransaction(
     resourceType: "SUBSCRIPTION",
     resourceId: subscription.id,
     metadata: {
-      workspaceName: subscription.workspace.name,
+      workspaceName: workspace.name,
       planCode: previousPlan,
     },
   });
-  return updated;
+  return {
+    ...updatedSubscription,
+    plan: fallbackPlan,
+    fallbackPlan,
+    workspace,
+  };
 }
 
 async function processSubscriptionCreated(event: ParsedProviderEvent) {
@@ -739,10 +763,16 @@ async function processInvoiceEvent(event: ParsedProviderEvent) {
     });
     if (!candidate) return { handled: false, idempotent: false };
     await lockWorkspaceCommercialAccount(transaction, candidate.workspaceId);
-    const subscription = await transaction.subscription.findUniqueOrThrow({
+    const subscriptionRecord = await transaction.subscription.findUniqueOrThrow({
       where: { id: candidate.id },
-      include: { plan: true, workspace: true },
     });
+    const plan = await transaction.plan.findUniqueOrThrow({
+      where: { id: subscriptionRecord.planId },
+    });
+    const workspace = await transaction.workspace.findUniqueOrThrow({
+      where: { id: subscriptionRecord.workspaceId },
+    });
+    const subscription = { ...subscriptionRecord, plan, workspace };
     if (
       subscription.plan.billingMode !== "RECURRING" ||
       toMinorUnits(subscription.plan.monthlyPrice, "GHS") !== amountMinor
@@ -1038,10 +1068,22 @@ export async function cancelRecurringSubscription(
       input.actorUserId,
       input.workspaceId,
     );
-    const subscription = await transaction.subscription.findUnique({
+    const subscriptionRecord = await transaction.subscription.findUnique({
       where: { workspaceId: input.workspaceId },
-      include: { plan: true, fallbackPlan: true },
     });
+    const plan = subscriptionRecord
+      ? await transaction.plan.findUniqueOrThrow({
+          where: { id: subscriptionRecord.planId },
+        })
+      : null;
+    const fallbackPlan = subscriptionRecord?.fallbackPlanId
+      ? await transaction.plan.findUniqueOrThrow({
+          where: { id: subscriptionRecord.fallbackPlanId },
+        })
+      : null;
+    const subscription = subscriptionRecord
+      ? { ...subscriptionRecord, plan: plan!, fallbackPlan }
+      : null;
     if (
       !subscription ||
       subscription.status !== "ACTIVE" ||

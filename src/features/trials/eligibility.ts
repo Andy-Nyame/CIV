@@ -13,25 +13,23 @@ export async function evaluateTrialEligibility(
   },
 ) {
   const now = input.now ?? new Date();
-  const [configuration, workspace] = await Promise.all([
-    transaction.trialConfiguration.findUnique({
-      where: { id: "GLOBAL" },
-      include: { trialPlan: true, fallbackPlan: true },
-    }),
-    transaction.workspace.findUnique({
-      where: { id: input.workspaceId },
-      select: {
-        id: true,
-        name: true,
-        archivedAt: true,
-        createdAt: true,
-        trials: {
-          orderBy: { createdAt: "desc" },
-          select: { id: true, status: true, endsAt: true },
-        },
+  const configuration = await transaction.trialConfiguration.findUnique({
+    where: { id: "GLOBAL" },
+    include: { trialPlan: true, fallbackPlan: true },
+  });
+  const workspace = await transaction.workspace.findUnique({
+    where: { id: input.workspaceId },
+    select: {
+      id: true,
+      name: true,
+      archivedAt: true,
+      createdAt: true,
+      trials: {
+        orderBy: { createdAt: "desc" },
+        select: { id: true, status: true, endsAt: true },
       },
-    }),
-  ]);
+    },
+  });
 
   let reason: TrialEligibilityReason | null = null;
   if (!configuration?.enabled) reason = "DISABLED";

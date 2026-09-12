@@ -129,62 +129,56 @@ export async function getDocumentCreditsPageData() {
       transaction,
       context.workspace.id,
     );
-    const [
-      purchasedBalance,
-      subscription,
-      packs,
-      acquisitions,
-      purchases,
-      entitlements,
-    ] = await Promise.all([
-        getPurchasedCreditBalance(transaction, context.workspace.id),
-        transaction.subscription.findUnique({
-          where: { workspaceId: context.workspace.id },
-          select: { status: true, plan: { select: { code: true, name: true } } },
-        }),
-        transaction.documentCreditPack.findMany({
-          where: { isActive: true, isPublic: true },
-          orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
-          select: {
-            code: true,
-            name: true,
-            description: true,
-            creditAmount: true,
-            price: true,
-            currency: true,
-          },
-        }),
-        transaction.documentCreditPurchase.findMany({
-          where: { workspaceId: context.workspace.id, betaAcquisition: true },
-          select: { pack: { select: { code: true } } },
-        }),
-        transaction.documentCreditPurchase.findMany({
-          where: { workspaceId: context.workspace.id },
+    const purchasedBalance = await getPurchasedCreditBalance(
+      transaction,
+      context.workspace.id,
+    );
+    const subscription = await transaction.subscription.findUnique({
+      where: { workspaceId: context.workspace.id },
+      select: { status: true, plan: { select: { code: true, name: true } } },
+    });
+    const packs = await transaction.documentCreditPack.findMany({
+      where: { isActive: true, isPublic: true },
+      orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
+      select: {
+        code: true,
+        name: true,
+        description: true,
+        creditAmount: true,
+        price: true,
+        currency: true,
+      },
+    });
+    const acquisitions = await transaction.documentCreditPurchase.findMany({
+      where: { workspaceId: context.workspace.id, betaAcquisition: true },
+      select: { pack: { select: { code: true } } },
+    });
+    const purchases = await transaction.documentCreditPurchase.findMany({
+      where: { workspaceId: context.workspace.id },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 20,
+      select: {
+        id: true,
+        status: true,
+        betaAcquisition: true,
+        creditAmountSnapshot: true,
+        priceSnapshot: true,
+        currencySnapshot: true,
+        createdAt: true,
+        completedAt: true,
+        pack: { select: { code: true, name: true } },
+        payments: {
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-          take: 20,
-          select: {
-            id: true,
-            status: true,
-            betaAcquisition: true,
-            creditAmountSnapshot: true,
-            priceSnapshot: true,
-            currencySnapshot: true,
-            createdAt: true,
-            completedAt: true,
-            pack: { select: { code: true, name: true } },
-            payments: {
-              orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-              take: 1,
-              select: { internalReference: true, status: true },
-            },
-          },
-        }),
-        resolveWorkspaceEntitlementsInTransaction(
-          transaction,
-          context.workspace.id,
-          { includePurchasedCredits: false },
-        ),
-      ]);
+          take: 1,
+          select: { internalReference: true, status: true },
+        },
+      },
+    });
+    const entitlements = await resolveWorkspaceEntitlementsInTransaction(
+      transaction,
+      context.workspace.id,
+      { includePurchasedCredits: false },
+    );
     return {
       period,
       purchasedBalance,

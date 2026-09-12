@@ -39,31 +39,29 @@ export async function changeWorkspacePlan(input: ChangeWorkspacePlanInput) {
       input.workspaceId,
     );
 
-    const [subscription, targetPlan] = await Promise.all([
-      transaction.subscription.findUnique({
-        where: { workspaceId: input.workspaceId },
-        select: {
-          id: true,
-          status: true,
-          providerSubscriptionCode: true,
-          plan: { select: { code: true, name: true } },
-        },
-      }),
-      transaction.plan.findUnique({
-        where: { code: planCode.data },
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          memberLimit: true,
-          documentLimit: true,
-          isActive: true,
-          isPublic: true,
-          isAvailableForNewWorkspaces: true,
-          billingMode: true,
-        },
-      }),
-    ]);
+    const subscription = await transaction.subscription.findUnique({
+      where: { workspaceId: input.workspaceId },
+      select: {
+        id: true,
+        status: true,
+        providerSubscriptionCode: true,
+        plan: { select: { code: true, name: true } },
+      },
+    });
+    const targetPlan = await transaction.plan.findUnique({
+      where: { code: planCode.data },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        memberLimit: true,
+        documentLimit: true,
+        isActive: true,
+        isPublic: true,
+        isAvailableForNewWorkspaces: true,
+        billingMode: true,
+      },
+    });
 
     if (
       !subscription ||

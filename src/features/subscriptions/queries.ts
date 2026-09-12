@@ -24,67 +24,67 @@ export async function getPlanSettingsPageData() {
       transaction,
       context.workspace.id,
     );
-    const [subscription, plans, memberUsage, entitlements] =
-      await Promise.all([
-        transaction.subscription.findUnique({
-          where: { workspaceId: context.workspace.id },
-          select: {
-            id: true,
-            status: true,
-            provider: true,
-            providerSubscriptionCode: true,
-            currentPeriodStart: true,
-            currentPeriodEnd: true,
-            nextPaymentAt: true,
-            lastPaymentAt: true,
-            cancelAtPeriodEnd: true,
-            fallbackPlan: { select: { code: true, name: true } },
-            pendingPlan: { select: { code: true, name: true } },
-            plan: {
-              select: {
-                code: true,
-                name: true,
-                betaPrice: true,
-                monthlyPrice: true,
-                currency: true,
-                billingMode: true,
-                memberLimit: true,
-                documentLimit: true,
-              },
-            },
-          },
-        }),
-        transaction.plan.findMany({
-          where: {
-            isActive: true,
-            isPublic: true,
-            OR: [
-              { isAvailableForNewWorkspaces: true },
-              { billingMode: "CUSTOM" },
-            ],
-          },
+    const subscription = await transaction.subscription.findUnique({
+      where: { workspaceId: context.workspace.id },
+      select: {
+        id: true,
+        status: true,
+        provider: true,
+        providerSubscriptionCode: true,
+        currentPeriodStart: true,
+        currentPeriodEnd: true,
+        nextPaymentAt: true,
+        lastPaymentAt: true,
+        cancelAtPeriodEnd: true,
+        fallbackPlan: { select: { code: true, name: true } },
+        pendingPlan: { select: { code: true, name: true } },
+        plan: {
           select: {
             code: true,
             name: true,
-            description: true,
             betaPrice: true,
             monthlyPrice: true,
             currency: true,
             billingMode: true,
-            paystackPlanCode: true,
             memberLimit: true,
             documentLimit: true,
-            sortOrder: true,
           },
-          orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
-        }),
-        getWorkspaceMemberCapacityUsage(transaction, context.workspace.id),
-        resolveWorkspaceEntitlementsInTransaction(
-          transaction,
-          context.workspace.id,
-          { includePurchasedCredits: false },
-        ),
-      ]);
+        },
+      },
+    });
+    const plans = await transaction.plan.findMany({
+      where: {
+        isActive: true,
+        isPublic: true,
+        OR: [
+          { isAvailableForNewWorkspaces: true },
+          { billingMode: "CUSTOM" },
+        ],
+      },
+      select: {
+        code: true,
+        name: true,
+        description: true,
+        betaPrice: true,
+        monthlyPrice: true,
+        currency: true,
+        billingMode: true,
+        paystackPlanCode: true,
+        memberLimit: true,
+        documentLimit: true,
+        sortOrder: true,
+      },
+      orderBy: [{ sortOrder: "asc" }, { code: "asc" }],
+    });
+    const memberUsage = await getWorkspaceMemberCapacityUsage(
+      transaction,
+      context.workspace.id,
+    );
+    const entitlements = await resolveWorkspaceEntitlementsInTransaction(
+      transaction,
+      context.workspace.id,
+      { includePurchasedCredits: false },
+    );
 
     return {
       subscription,

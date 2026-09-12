@@ -55,16 +55,14 @@ async function seed() {
       });
     }
 
-    const [businessPlan, freePlan] = await Promise.all([
-      transaction.plan.findUniqueOrThrow({
-        where: { code: "BUSINESS" },
-        select: { id: true },
-      }),
-      transaction.plan.findUniqueOrThrow({
-        where: { code: "FREE" },
-        select: { id: true },
-      }),
-    ]);
+    const businessPlan = await transaction.plan.findUniqueOrThrow({
+      where: { code: "BUSINESS" },
+      select: { id: true },
+    });
+    const freePlan = await transaction.plan.findUniqueOrThrow({
+      where: { code: "FREE" },
+      select: { id: true },
+    });
 
     await transaction.trialConfiguration.upsert({
       where: { id: "GLOBAL" },

@@ -101,17 +101,37 @@ async function issueDocumentOnce(input: {
     const existing = access
       ? await transaction.document.findFirst({
           where: { id: documentId, ...access, archivedAt: null },
-          include: { snapshot: true, capacityConsumption: { select: { id: true } } },
         })
       : null;
     if (!existing) throw new DocumentIssueConflictError("The draft is unavailable.");
-    if (existing.status === "ISSUED") return issuedResult(existing, true);
+    if (existing.status === "ISSUED") {
+      const snapshot = await transaction.documentSnapshot.findUnique({
+        where: { documentId: existing.id },
+      });
+      const capacityConsumption =
+        await transaction.documentCapacityConsumption.findUnique({
+          where: { documentId: existing.id },
+          select: { id: true },
+        });
+      return issuedResult(
+        { ...existing, snapshot, capacityConsumption },
+        true,
+      );
+    }
     if (existing.status !== "DRAFT" || claimed.count !== 1) throw new DocumentIssueConflictError();
 
-    const draft = await transaction.document.findUniqueOrThrow({
+    const draftRecord = await transaction.document.findUniqueOrThrow({
       where: { id: documentId },
-      include: { paymentEvents: { orderBy: { eventOrder: "asc" } }, lines: { orderBy: { lineOrder: "asc" } } },
     });
+    const paymentEvents = await transaction.documentPaymentEvent.findMany({
+      where: { documentId },
+      orderBy: { eventOrder: "asc" },
+    });
+    const lines = await transaction.documentLine.findMany({
+      where: { documentId },
+      orderBy: { lineOrder: "asc" },
+    });
+    const draft = { ...draftRecord, paymentEvents, lines };
     if (!["INVOICE", "RECEIPT", "VAT_INVOICE", "CREDIT_NOTE", "DEBIT_NOTE"].includes(draft.type)) {
       throw new DocumentIssueReadinessError([{ code: "UNSUPPORTED_TYPE", message: "This document type cannot be issued yet.", field: "type" }]);
     }
@@ -237,16 +257,52 @@ async function issueDocumentOnce(input: {
       documentId,
     });
     const issuedAt = new Date();
-    const authoritativeDocument = await transaction.document.findUniqueOrThrow({
+    const authoritativeDocumentRecord =
+      await transaction.document.findUniqueOrThrow({
       where: { id: documentId },
-      include: {
-        workspace: { include: { logo: true } },
-        customer: true,
-        originalDocument: { select: { documentNumber: true, issueDate: true, snapshot: { select: { payload: true } } } },
-        paymentEvents: { orderBy: { eventOrder: "asc" } },
-        lines: { orderBy: { lineOrder: "asc" } },
-      },
     });
+    const workspaceRecord = await transaction.workspace.findUniqueOrThrow({
+      where: { id: authoritativeDocumentRecord.workspaceId },
+    });
+    const logo = await transaction.workspaceLogo.findUnique({
+      where: { workspaceId: workspaceRecord.id },
+    });
+    const customer = authoritativeDocumentRecord.customerId
+      ? await transaction.customer.findUnique({
+          where: { id: authoritativeDocumentRecord.customerId },
+        })
+      : null;
+    const originalDocumentRecord = authoritativeDocumentRecord.originalDocumentId
+      ? await transaction.document.findUnique({
+          where: { id: authoritativeDocumentRecord.originalDocumentId },
+          select: { id: true, documentNumber: true, issueDate: true },
+        })
+      : null;
+    const originalSnapshot = originalDocumentRecord
+      ? await transaction.documentSnapshot.findUnique({
+          where: { documentId: originalDocumentRecord.id },
+          select: { payload: true },
+        })
+      : null;
+    const authoritativePaymentEvents =
+      await transaction.documentPaymentEvent.findMany({
+        where: { documentId },
+        orderBy: { eventOrder: "asc" },
+      });
+    const authoritativeLines = await transaction.documentLine.findMany({
+      where: { documentId },
+      orderBy: { lineOrder: "asc" },
+    });
+    const authoritativeDocument = {
+      ...authoritativeDocumentRecord,
+      workspace: { ...workspaceRecord, logo },
+      customer,
+      originalDocument: originalDocumentRecord
+        ? { ...originalDocumentRecord, snapshot: originalSnapshot }
+        : null,
+      paymentEvents: authoritativePaymentEvents,
+      lines: authoritativeLines,
+    };
     const actor = await transaction.user.findUniqueOrThrow({
       where: { id: input.actorUserId },
       select: { id: true, name: true, email: true },

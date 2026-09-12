@@ -53,12 +53,19 @@ export async function authorizeWorkspaceDocumentReadinessInTransaction(input: {
     },
     select: {
       role: true,
-      user: { select: { email: true } },
-      workspace: { select: workspaceReadinessSelect },
     },
   });
   if (!membership || !hasCapability({ role: membership.role }, input.capability)) throw new WorkspaceAuthorizationError();
-  const { role, user: { email }, workspace } = membership;
+  const user = await transaction.user.findUniqueOrThrow({
+    where: { id: input.actorUserId },
+    select: { email: true },
+  });
+  const workspace = await transaction.workspace.findUniqueOrThrow({
+    where: { id: input.workspaceId },
+    select: workspaceReadinessSelect,
+  });
+  const { role } = membership;
+  const { email } = user;
   const isSuperAdmin = isSuperAdminEmail(email);
   if (workspace.environment === "TEST" && !isSuperAdmin) throw new WorkspaceAuthorizationError();
   const readiness = evaluateWorkspaceDocumentReadiness({

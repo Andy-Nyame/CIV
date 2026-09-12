@@ -25,17 +25,15 @@ export async function bootstrapDevelopmentPlatformOwner(input: {
       SELECT pg_advisory_xact_lock(hashtext('civ-platform-owner-bootstrap'))::text AS lock
     `;
 
-    const [user, activeOwners] = await Promise.all([
-      transaction.user.findUnique({
-        where: { email: email.data },
-        select: { id: true },
-      }),
-      transaction.platformMembership.findMany({
-        where: { role: "PLATFORM_OWNER", status: "ACTIVE" },
-        select: { userId: true },
-        take: 2,
-      }),
-    ]);
+    const user = await transaction.user.findUnique({
+      where: { email: email.data },
+      select: { id: true },
+    });
+    const activeOwners = await transaction.platformMembership.findMany({
+      where: { role: "PLATFORM_OWNER", status: "ACTIVE" },
+      select: { userId: true },
+      take: 2,
+    });
 
     if (!user) throw new PlatformBootstrapError("USER_NOT_FOUND");
     if (activeOwners.length > 1) {

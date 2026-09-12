@@ -54,11 +54,55 @@ export async function validateIssueReadinessInTransaction(
     const readinessContext = authorizedContext ?? await authorizeWorkspaceDocumentReadinessInTransaction({ actorUserId: input.actorUserId, workspaceId: input.workspaceId, capability: CAPABILITIES.ISSUE_DOCUMENT }, transaction);
     const membership = readinessContext.membership;
     const access = getDocumentAccessFilter(membership);
-    const document = access ? await transaction.document.findFirst({
+    const documentRecord = access ? await transaction.document.findFirst({
       where: { id: input.documentId, ...access, status: "DRAFT", archivedAt: null },
-      include: { customer: true, workspace: true, paymentEvents: { orderBy: { eventOrder: "asc" } }, originalDocument: { select: { snapshot: { select: { payload: true } } } }, lines: { include: { customRate: { select: { workspaceId: true } } } } },
     }) : null;
-    if (!document) return { ready: false, errors: [{ code: "DRAFT_UNAVAILABLE", message: "The draft is unavailable for issue preparation." }] satisfies IssueReadinessError[] };
+    if (!documentRecord) return { ready: false, errors: [{ code: "DRAFT_UNAVAILABLE", message: "The draft is unavailable for issue preparation." }] satisfies IssueReadinessError[] };
+    const customer = documentRecord.customerId
+      ? await transaction.customer.findUnique({
+          where: { id: documentRecord.customerId },
+          select: { name: true },
+        })
+      : null;
+    const paymentEvents = await transaction.documentPaymentEvent.findMany({
+      where: { documentId: documentRecord.id },
+      orderBy: { eventOrder: "asc" },
+    });
+    const originalSnapshot = documentRecord.originalDocumentId
+      ? await transaction.documentSnapshot.findUnique({
+          where: { documentId: documentRecord.originalDocumentId },
+          select: { payload: true },
+        })
+      : null;
+    const lineRecords = await transaction.documentLine.findMany({
+      where: { documentId: documentRecord.id },
+    });
+    const customRateIds = lineRecords.flatMap(({ customRateId }) =>
+      customRateId ? [customRateId] : [],
+    );
+    const customRates = customRateIds.length
+      ? await transaction.customRate.findMany({
+          where: { id: { in: customRateIds } },
+          select: { id: true, workspaceId: true },
+        })
+      : [];
+    const customRateById = new Map(
+      customRates.map((rate) => [rate.id, rate]),
+    );
+    const document = {
+      ...documentRecord,
+      customer,
+      paymentEvents,
+      originalDocument: documentRecord.originalDocumentId
+        ? { snapshot: originalSnapshot }
+        : null,
+      lines: lineRecords.map((line) => ({
+        ...line,
+        customRate: line.customRateId
+          ? customRateById.get(line.customRateId) ?? null
+          : null,
+      })),
+    };
 
     const errors: IssueReadinessError[] = [];
     const taxPointDate = determineTaxPointDateTime({ supplyDate: document.supplyDate ?? document.draftDate, documentDate: document.draftDate, paymentDates: document.paymentEvents.map(({ occurredAt }) => occurredAt) });

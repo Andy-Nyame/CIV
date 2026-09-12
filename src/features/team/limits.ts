@@ -37,18 +37,16 @@ export async function getWorkspaceMemberCapacityUsage(
   workspaceId: string,
   now = new Date(),
 ) {
-  const [activeMembers, pendingInvitations] = await Promise.all([
-    transaction.membership.count({
-      where: { workspaceId, status: "ACTIVE" },
-    }),
-    transaction.invitation.count({
-      where: {
-        workspaceId,
-        status: "PENDING",
-        expiresAt: { gt: now },
-      },
-    }),
-  ]);
+  const activeMembers = await transaction.membership.count({
+    where: { workspaceId, status: "ACTIVE" },
+  });
+  const pendingInvitations = await transaction.invitation.count({
+    where: {
+      workspaceId,
+      status: "PENDING",
+      expiresAt: { gt: now },
+    },
+  });
 
   return {
     activeMembers,

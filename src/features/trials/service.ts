@@ -122,22 +122,20 @@ async function createTrialInTransaction(
 export async function getNewWorkspaceTrialFoundation(
   transaction: Prisma.TransactionClient,
 ) {
-  const [freePlan, configuration] = await Promise.all([
-    transaction.plan.findUnique({
-      where: { code: "FREE" },
-      select: {
-        id: true,
-        code: true,
-        documentLimit: true,
-        isActive: true,
-        isAvailableForNewWorkspaces: true,
-      },
-    }),
-    transaction.trialConfiguration.findUnique({
-      where: { id: "GLOBAL" },
-      include: { trialPlan: true, fallbackPlan: true },
-    }),
-  ]);
+  const freePlan = await transaction.plan.findUnique({
+    where: { code: "FREE" },
+    select: {
+      id: true,
+      code: true,
+      documentLimit: true,
+      isActive: true,
+      isAvailableForNewWorkspaces: true,
+    },
+  });
+  const configuration = await transaction.trialConfiguration.findUnique({
+    where: { id: "GLOBAL" },
+    include: { trialPlan: true, fallbackPlan: true },
+  });
   if (!freePlan?.isActive || !freePlan.isAvailableForNewWorkspaces) {
     throw new TrialConfigurationError();
   }
@@ -323,11 +321,15 @@ export async function updateTrialConfiguration(input: {
   return db.$transaction(async (transaction) => {
     await lockTrialConfiguration(transaction);
     await requireTrialManagerInTransaction(transaction, input.actorUserId);
-    const [existing, trialPlan, fallbackPlan] = await Promise.all([
-      transaction.trialConfiguration.findUnique({ where: { id: "GLOBAL" } }),
-      transaction.plan.findUnique({ where: { code: parsed.data.trialPlanCode } }),
-      transaction.plan.findUnique({ where: { code: parsed.data.fallbackPlanCode } }),
-    ]);
+    const existing = await transaction.trialConfiguration.findUnique({
+      where: { id: "GLOBAL" },
+    });
+    const trialPlan = await transaction.plan.findUnique({
+      where: { code: parsed.data.trialPlanCode },
+    });
+    const fallbackPlan = await transaction.plan.findUnique({
+      where: { code: parsed.data.fallbackPlanCode },
+    });
     if (!existing || !trialPlan?.isActive || !fallbackPlan?.isActive) {
       throw new TrialConfigurationError();
     }
