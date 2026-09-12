@@ -72,6 +72,7 @@ test("workspace mutations write safe, transactional, isolated audit history", as
       {
         actorDisplayName: "Audit owner",
         initialPlan: "FREE",
+        workspaceEnvironment: "NORMAL",
         workspaceType: "BUSINESS",
       },
     );

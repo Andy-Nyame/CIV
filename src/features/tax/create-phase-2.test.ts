@@ -113,8 +113,8 @@ test("effective trusted tax, custom snapshots, readiness, snapshots, numbering, 
 
     const ordinary = await createDraft({ actorUserId: owner.id, workspaceId: workspace.id, data: { type: "INVOICE", customerId: customer.id, customerName: customer.name, currency: "GHS", draftDate: "2026-08-21", dueDate: "2026-09-01", notes: "Custom rate", lines: [{ catalogItemId: null, customRateId: rate.id, description: "Service", quantity: "1", unitPrice: "100.00" }] } });
     assert.equal(ordinary.rateTotal.toFixed(2), "5.00");
-    assert.equal(ordinary.grandTotal.toFixed(2), "125.00");
-    assert.equal(ordinary.taxVersionId, taxVersion.id);
+    assert.equal(ordinary.grandTotal.toFixed(2), "105.00");
+    assert.equal(ordinary.taxVersionId, null);
     await updateCustomRate({ actorUserId: owner.id, workspaceId: workspace.id, rateId: rate.id, data: { name: rate.name, type: rate.type, value: "7", description: rate.description ?? "" } });
     const preserved = await updateDraft({ actorUserId: owner.id, workspaceId: workspace.id, documentId: ordinary.id, data: { type: "INVOICE", customerId: customer.id, customerName: customer.name, currency: "GHS", draftDate: "2026-08-21", dueDate: "2026-09-01", notes: "Preserve", lines: [{ id: ordinary.lines[0]!.id, catalogItemId: null, customRateId: rate.id, description: "Service", quantity: "1", unitPrice: "100.00" }] } });
     assert.equal(preserved.rateTotal.toFixed(2), "5.00");

@@ -8,7 +8,7 @@ import { BusinessDataValidationError } from "@/features/business-data/errors";
 import { createCustomer, updateCustomer } from "./service";
 
 export type CustomerFormState = { message?: string; errors?: Record<string, string[] | undefined> };
-const data = (form: FormData) => ({ name: form.get("name"), email: form.get("email"), phone: form.get("phone"), address: form.get("address"), businessTin: form.get("taxpayerId"), taxpayerIdType: form.get("taxpayerIdType"), taxpayerId: form.get("taxpayerId"), vatRegistrationStatus: form.get("vatRegistrationStatus"), notes: form.get("notes") });
+const data = (form: FormData) => ({ name: form.get("name"), email: form.get("email"), phone: form.get("phone"), address: form.get("address"), businessTin: form.get("taxpayerId"), taxpayerIdType: form.get("taxpayerIdType"), taxpayerId: form.get("taxpayerId"), vatRegistrationStatus: form.get("vatRegistrationStatus"), taxStatus: form.get("taxStatus"), notes: form.get("notes") });
 
 export async function saveCustomerAction(customerId: string | null, _state: CustomerFormState, form: FormData): Promise<CustomerFormState> {
   try {

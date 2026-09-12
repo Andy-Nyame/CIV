@@ -33,6 +33,31 @@ enum VatRegistrationStatus {
   DEREGISTERED
 }
 
+enum VatSalesReceiptAuthorization {
+  UNKNOWN
+  NOT_AUTHORIZED
+  AUTHORIZED
+}
+
+enum CustomerTaxStatus {
+  ORDINARY_CONSUMER
+  TAXABLE_PERSON
+}
+
+enum ReceiptType {
+  COMMERCIAL
+  VAT_SALES_RECEIPT
+}
+
+enum FiscalizationStatus {
+  NOT_RECORDED
+  NOT_REQUIRED
+  REQUIRES_GRA
+  PENDING
+  CERTIFIED
+  FAILED
+}
+
 enum TaxpayerIdType {
   GHANA_CARD_PIN
   GRA_TIN
@@ -306,6 +331,7 @@ model User {
   sentInvitations              Invitation[]                  @relation("InvitationInviter")
   createdDocuments             Document[]                    @relation("DocumentCreator")
   issuedDocuments              Document[]                    @relation("DocumentIssuer")
+  voidedDocuments              Document[]                    @relation("DocumentVoider")
   createdCustomers             Customer[]                    @relation("CustomerCreator")
   createdCatalogueItems        ItemService[]                 @relation("ItemServiceCreator")
   auditEvents                  AuditEvent[]                  @relation("AuditActor")
@@ -449,6 +475,7 @@ model Workspace {
   vatRegistrationStatus        VatRegistrationStatus               @default(NOT_REGISTERED)
   vatRegistrationEffectiveDate DateTime?                           @db.Date
   vatDeregistrationEffectiveDate DateTime?                          @db.Date
+  vatSalesReceiptAuthorization  VatSalesReceiptAuthorization       @default(UNKNOWN)
   /// Legacy compatibility mirror. New eligibility decisions use vatRegistrationStatus and effective dates.
   vatRegistered                Boolean                            @default(false)
   createdAt                    DateTime                           @default(now()) @db.Timestamptz(3)
@@ -544,6 +571,7 @@ model Customer {
   taxpayerIdType  TaxpayerIdType?
   taxpayerId      String?    @db.VarChar(100)
   vatRegistrationStatus VatRegistrationStatus?
+  taxStatus        CustomerTaxStatus @default(ORDINARY_CONSUMER)
   notes           String?    @db.Text
   createdAt       DateTime   @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime   @updatedAt @db.Timestamptz(3)
@@ -673,10 +701,12 @@ model Document {
   customerTaxpayerIdType TaxpayerIdType?
   customerTaxpayerId String?        @db.VarChar(100)
   customerVatRegistrationStatus VatRegistrationStatus?
+  customerTaxStatus CustomerTaxStatus @default(ORDINARY_CONSUMER)
   taxVersionId    String?           @db.Uuid
   originalDocumentId String?        @db.Uuid
   adjustmentReason String?          @db.VarChar(1000)
   type            DocumentType
+  receiptType     ReceiptType       @default(COMMERCIAL)
   status          DocumentStatus    @default(DRAFT)
   isTestDocument  Boolean           @default(false)
   draftReference  String            @unique @db.VarChar(40)
@@ -690,6 +720,8 @@ model Document {
   supplyDate      DateTime?         @db.Timestamptz(3)
   taxPointDate    DateTime?         @db.Timestamptz(3)
   transactionType TransactionType   @default(SALE)
+  servicePeriodStart DateTime?       @db.Timestamptz(3)
+  servicePeriodEnd DateTime?         @db.Timestamptz(3)
   priceMode       TaxPriceMode      @default(TAX_EXCLUSIVE)
   notes           String?           @db.Text
   subtotal        Decimal           @default(0) @db.Decimal(19, 4)
@@ -704,23 +736,37 @@ model Document {
   exemptValue     Decimal            @default(0) @db.Decimal(19, 4)
   relievedValue   Decimal            @default(0) @db.Decimal(19, 4)
   withholdingApplied Boolean         @default(false)
+  withholdingAgent Boolean           @default(false)
   withholdingAmount Decimal          @default(0) @db.Decimal(19, 4)
   withholdingReference String?       @db.VarChar(500)
+  withholdingEvidence String?        @db.VarChar(500)
   withholdingDate DateTime?          @db.Date
   netPayable      Decimal             @default(0) @db.Decimal(19, 4)
+  fiscalizationStatus FiscalizationStatus @default(NOT_RECORDED)
+  graFiscalDocumentId String?          @db.VarChar(200)
+  graTimestamp     DateTime?            @db.Timestamptz(3)
+  graSignature     String?              @db.Text
+  graVerificationEngineId String?       @db.VarChar(200)
+  graVerificationPayload String?        @db.Text
+  graSecurityData String?               @db.Text
+  graProviderReference String?          @db.VarChar(300)
   createdAt       DateTime          @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
   archivedAt      DateTime?         @db.Timestamptz(3)
   issuedAt        DateTime?         @db.Timestamptz(3)
   voidedAt        DateTime?         @db.Timestamptz(3)
+  voidReason      String?           @db.VarChar(1000)
+  voidedByUserId  String?           @db.Uuid
   workspace       Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
   createdBy       User              @relation("DocumentCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
   issuedBy        User?             @relation("DocumentIssuer", fields: [issuedByUserId], references: [id], onDelete: Restrict)
+  voidedBy        User?             @relation("DocumentVoider", fields: [voidedByUserId], references: [id], onDelete: Restrict)
   customer        Customer?         @relation(fields: [customerId], references: [id], onDelete: Restrict)
   taxVersion      TaxVersion?       @relation(fields: [taxVersionId], references: [id], onDelete: Restrict)
   originalDocument Document?        @relation("DocumentAdjustments", fields: [originalDocumentId], references: [id], onDelete: Restrict)
   adjustments     Document[]        @relation("DocumentAdjustments")
   lines           DocumentLine[]
+  paymentEvents   DocumentPaymentEvent[]
   snapshot        DocumentSnapshot?
   files           DocumentFile[]
   capacityConsumption DocumentCapacityConsumption?
@@ -736,8 +782,29 @@ model Document {
   @@index([customerId])
   @@index([createdByUserId])
   @@index([issuedByUserId])
+  @@index([voidedByUserId])
   @@index([taxVersionId])
   @@index([originalDocumentId])
+  @@index([fiscalizationStatus])
+  @@index([graFiscalDocumentId])
+  @@index([graProviderReference])
+}
+
+model DocumentPaymentEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  documentId  String   @db.Uuid
+  occurredAt  DateTime @db.Timestamptz(3)
+  amount      Decimal  @db.Decimal(19, 4)
+  method      String?  @db.VarChar(100)
+  reference   String?  @db.VarChar(300)
+  isPartial   Boolean  @default(true)
+  eventOrder  Int
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, eventOrder])
+  @@index([documentId, occurredAt])
 }
 
 model DocumentNumberSequence {

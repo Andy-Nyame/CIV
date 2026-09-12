@@ -4,11 +4,11 @@ import { CAPABILITIES, getDocumentAccessFilter } from "@/features/authorization/
 import { AUDIT_RESOURCE_TYPES } from "@/features/audit/registry";
 import { recordAuditEvent } from "@/features/audit/service";
 import { BusinessDataConflictError, BusinessDataValidationError } from "@/features/business-data/errors";
-import { businessDataTransactionOptions, lockBusinessResource } from "@/features/business-data/locking";
+import { businessDataTransactionOptions } from "@/features/business-data/locking";
 import { consumeDocumentCapacityInTransaction } from "@/features/commercial/capacity";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
-import { determineTaxPoint, isVatEligibleAtTaxPoint } from "@/features/tax/eligibility";
+import { determineTaxPointDateTime, isVatEligibleAtTaxPoint } from "@/features/tax/eligibility";
 import { resolveGhanaVatVersion } from "@/features/tax/resolver";
 import { buildTaxSnapshot } from "@/features/tax/snapshot";
 import type { TrustedTaxComponent, TrustedTaxVersion } from "@/features/tax/types";
@@ -21,6 +21,7 @@ import { allocateOfficialDocumentNumber } from "./numbering";
 import { validateIssueReadinessInTransaction, workspaceIssuesForIssuance, type IssueReadinessError } from "./readiness";
 import { buildIssuedDocumentSnapshot, issuedDocumentSnapshotSchema } from "./snapshots";
 import { documentIdSchema } from "./validation";
+import { hasAuthoritativeGraCertification, isStatutoryTaxDocument } from "./compliance";
 
 export class DocumentIssueReadinessError extends Error {
   constructor(readonly errors: IssueReadinessError[]) {
@@ -79,12 +80,24 @@ function issuedResult(document: {
 async function issueDocumentOnce(input: {
   actorUserId: string;
   workspaceId: string;
+  acknowledgeGraRequirement: boolean;
 }, documentId: string, verificationCode: string, client: typeof db) {
   return client.$transaction(async (transaction) => {
-    await lockBusinessResource(transaction, `document:${documentId}`);
     const authorization = await authorizeWorkspaceDocumentReadinessInTransaction({ actorUserId: input.actorUserId, workspaceId: input.workspaceId, capability: CAPABILITIES.ISSUE_DOCUMENT }, transaction);
     const membership = authorization.membership;
     const access = getDocumentAccessFilter(membership);
+
+    // Claim and row-lock a draft with one conditional UPDATE. Concurrent issue
+    // requests wait for the winner, then re-evaluate the DRAFT predicate and
+    // fall through to the immutable issued-result path. This avoids a raw
+    // advisory query at transaction start, which Prisma's pg adapter can
+    // overlap with BEGIN, while retaining exactly-once issuance semantics.
+    const claimed = access
+      ? await transaction.document.updateMany({
+          where: { id: documentId, ...access, status: "DRAFT", archivedAt: null },
+          data: { updatedAt: new Date() },
+        })
+      : { count: 0 };
     const existing = access
       ? await transaction.document.findFirst({
           where: { id: documentId, ...access, archivedAt: null },
@@ -93,23 +106,38 @@ async function issueDocumentOnce(input: {
       : null;
     if (!existing) throw new DocumentIssueConflictError("The draft is unavailable.");
     if (existing.status === "ISSUED") return issuedResult(existing, true);
-    if (existing.status !== "DRAFT") throw new DocumentIssueConflictError();
+    if (existing.status !== "DRAFT" || claimed.count !== 1) throw new DocumentIssueConflictError();
 
     const draft = await transaction.document.findUniqueOrThrow({
       where: { id: documentId },
-      include: { lines: { orderBy: { lineOrder: "asc" } } },
+      include: { paymentEvents: { orderBy: { eventOrder: "asc" } }, lines: { orderBy: { lineOrder: "asc" } } },
     });
     if (!["INVOICE", "RECEIPT", "VAT_INVOICE", "CREDIT_NOTE", "DEBIT_NOTE"].includes(draft.type)) {
       throw new DocumentIssueReadinessError([{ code: "UNSUPPORTED_TYPE", message: "This document type cannot be issued yet.", field: "type" }]);
     }
     const documentType = draft.type as "INVOICE" | "RECEIPT" | "VAT_INVOICE" | "CREDIT_NOTE" | "DEBIT_NOTE";
-    const taxPointDate = determineTaxPoint({ supplyDate: draft.supplyDate ?? draft.draftDate, documentDate: draft.draftDate });
+    const taxPointDateTime = determineTaxPointDateTime({ supplyDate: draft.supplyDate ?? draft.draftDate, documentDate: draft.draftDate, paymentDates: draft.paymentEvents.map(({ occurredAt }) => occurredAt) });
+    const taxPointDate = taxPointDateTime;
     const workspaceReadiness = evaluateWorkspaceDocumentReadiness({ workspace: authorization.workspace, documentType, taxPointDate, isSuperAdmin: authorization.isSuperAdmin });
     if (!workspaceReadiness.ready) {
       throw new DocumentIssueReadinessError(workspaceIssuesForIssuance(workspaceReadiness.issues));
     }
     if (draft.isTestDocument !== workspaceReadiness.isTestWorkspace) {
       throw new DocumentIssueReadinessError([{ code: "TEST_STATUS_INVALID", message: "The document TEST status does not match its workspace and cannot be changed." }]);
+    }
+    const statutoryTaxDocument = isStatutoryTaxDocument(documentType, draft.receiptType);
+    const requiresFiscalization = statutoryTaxDocument || documentType === "CREDIT_NOTE" || documentType === "DEBIT_NOTE";
+    if (draft.receiptType === "VAT_SALES_RECEIPT" && !workspaceReadiness.isTestWorkspace && authorization.workspace.vatSalesReceiptAuthorization !== "AUTHORIZED") {
+      throw new DocumentIssueReadinessError([{ code: "VAT_SALES_RECEIPT_NOT_AUTHORIZED", message: "This workspace has no recorded Commissioner-General authorization for VAT sales receipts. Use a commercial receipt or VAT invoice.", field: "receiptType" }]);
+    }
+    if (requiresFiscalization && !workspaceReadiness.isTestWorkspace) {
+      const certified = hasAuthoritativeGraCertification({ status: draft.fiscalizationStatus, fiscalDocumentId: draft.graFiscalDocumentId, timestamp: draft.graTimestamp, providerReference: draft.graProviderReference });
+      if (draft.fiscalizationStatus === "CERTIFIED" && !certified) {
+        throw new DocumentIssueReadinessError([{ code: "FISCALIZATION_INVALID", message: "GRA certification cannot be recorded without an authoritative fiscal response.", field: "fiscalizationStatus" }]);
+      }
+      if (!certified && !input.acknowledgeGraRequirement) {
+        throw new DocumentIssueReadinessError([{ code: "GRA_FISCALIZATION_ACKNOWLEDGEMENT_REQUIRED", message: "Acknowledge that this CIV record still requires GRA Certified Invoicing System processing for official use.", field: "fiscalizationStatus" }]);
+      }
     }
     const supplierVatEligible = isVatEligibleAtTaxPoint(authorization.workspace, taxPointDate);
     let taxVersion: TrustedTaxVersion | null = null;
@@ -128,7 +156,7 @@ async function issueDocumentOnce(input: {
       }
       statutoryComponents = originalSnapshot.data.tax?.components.map((component) => ({ code: component.code, name: component.name, rate: component.rate, calculationOrder: component.order, baseStrategy: component.baseStrategy, contributesToTaxableValue: false, contributesToTotal: true })) ?? [];
       if (originalSnapshot.data.tax) taxVersion = { id: originalSnapshot.data.tax.version.id, version: originalSnapshot.data.tax.version.code, effectiveFrom: new Date(`${originalSnapshot.data.tax.version.effectiveFrom}T00:00:00.000Z`), effectiveTo: originalSnapshot.data.tax.version.effectiveTo ? new Date(`${originalSnapshot.data.tax.version.effectiveTo}T00:00:00.000Z`) : null, profile: originalSnapshot.data.tax.profile, components: statutoryComponents };
-    } else if (supplierVatEligible && (documentType === "VAT_INVOICE" || draft.lines.some((line) => line.taxTreatment === "STANDARD_RATED" && !line.reliefApplied))) {
+    } else if (supplierVatEligible && statutoryTaxDocument) {
       taxVersion = await resolveGhanaVatVersion(taxPointDate, transaction);
       statutoryComponents = taxVersion.components;
     }
@@ -142,7 +170,7 @@ async function issueDocumentOnce(input: {
         priceMode: draft.priceMode,
         taxTreatment: line.taxTreatment,
         reliefApplied: line.reliefApplied,
-        supplierVatEligible: documentType === "CREDIT_NOTE" || documentType === "DEBIT_NOTE" ? statutoryComponents.length > 0 : supplierVatEligible,
+        supplierVatEligible: documentType === "CREDIT_NOTE" || documentType === "DEBIT_NOTE" ? statutoryComponents.length > 0 : supplierVatEligible && statutoryTaxDocument,
         statutoryComponents,
         rate: line.rateTypeSnapshot && line.rateValueSnapshot
           ? { type: line.rateTypeSnapshot, value: line.rateValueSnapshot.toString() }
@@ -168,7 +196,7 @@ async function issueDocumentOnce(input: {
       relievedValue: totals.relievedValue,
       withholdingAmount: withholding.withholdingAmount,
       netPayable: withholding.netPayable,
-      taxPointDate: new Date(`${taxPointDate}T00:00:00.000Z`),
+      taxPointDate: taxPointDateTime,
       taxCalculation: taxVersion ? buildTaxSnapshot(taxVersion, { base: totals.taxableValue.toFixed(2), taxableValue: totals.taxableValue.toFixed(2), taxTotal: totals.taxTotal.toFixed(2), grossTotal: totals.taxableValue.add(totals.taxTotal).toFixed(2), components: snapshotComponents }) as unknown as Prisma.InputJsonValue : Prisma.JsonNull,
     };
 
@@ -214,7 +242,8 @@ async function issueDocumentOnce(input: {
       include: {
         workspace: { include: { logo: true } },
         customer: true,
-        originalDocument: { select: { documentNumber: true, issueDate: true } },
+        originalDocument: { select: { documentNumber: true, issueDate: true, snapshot: { select: { payload: true } } } },
+        paymentEvents: { orderBy: { eventOrder: "asc" } },
         lines: { orderBy: { lineOrder: "asc" } },
       },
     });
@@ -287,6 +316,7 @@ export async function issueDocument(input: {
   actorUserId: string;
   workspaceId: string;
   documentId: unknown;
+  acknowledgeGraRequirement?: boolean;
 }, client: typeof db = db, options: { generateCode?: () => string } = {}) {
   const parsedId = documentIdSchema.safeParse(input.documentId);
   if (!parsedId.success) {
@@ -296,7 +326,7 @@ export async function issueDocument(input: {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
       return await issueDocumentOnce(
-        { actorUserId: input.actorUserId, workspaceId: input.workspaceId },
+        { actorUserId: input.actorUserId, workspaceId: input.workspaceId, acknowledgeGraRequirement: input.acknowledgeGraRequirement ?? false },
         parsedId.data,
         (options.generateCode ?? generateVerificationCode)(),
         client,

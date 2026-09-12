@@ -104,6 +104,7 @@ test("public result mapping exposes only immutable public-safe snapshot fields",
     issueDate: "2026-09-10",
     currency: "GHS",
     grandTotal: "100.00",
+    fiscalizationStatus: "GRA fiscalization not recorded",
   });
   const serialized = JSON.stringify(result);
   for (const privateValue of ["PRIVATE-TAXPAYER-ID", "private-customer@example.invalid", "+233240000000", "Private document notes", "Private line description"]) {

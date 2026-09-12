@@ -152,6 +152,7 @@ export const auditMetadataSchemas = {
       draftReference: z.string().trim().min(8).max(40),
       total: z.string().regex(/^\d+(\.\d{1,4})?$/),
       currency: z.string().length(3),
+      changedFields: z.array(z.string().max(40)).max(20).optional(),
     })
     .strict(),
   DOCUMENT_DRAFT_ARCHIVED: z
@@ -166,7 +167,7 @@ export const auditMetadataSchemas = {
       currency: z.string().length(3),
     })
     .strict(),
-  DOCUMENT_VOIDED: z.object({}).strict(),
+  DOCUMENT_VOIDED: z.object({ documentNumber: z.string().trim().min(5).max(100), reason: z.string().trim().min(8).max(1_000) }).strict(),
   DOCUMENT_STATUS_CHANGED: z.object({}).strict(),
   CUSTOMER_CREATED: z.object({ customerName: displayNameSchema }).strict(),
   CUSTOMER_UPDATED: z

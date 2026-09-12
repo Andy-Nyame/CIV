@@ -19,6 +19,7 @@ const MARGIN = 42;
 const FOOTER_HEIGHT = 28;
 const TEST_WARNING = "TEST DOCUMENT — NOT VALID";
 const DRAFT_WARNING = "DRAFT — NOT ISSUED";
+const VOID_WARNING = "VOID — NOT VALID";
 const CIV_FOOTER = "Generated with CIV · Create · Issue · Verify";
 
 const colors = {
@@ -107,6 +108,7 @@ export function buildPdfPageWarnings(model: DocumentPdfModel) {
   return [
     ...(model.isTestDocument ? [TEST_WARNING] : []),
     ...(model.lifecycle === "DRAFT" ? [DRAFT_WARNING] : []),
+    ...(model.isVoided ? [VOID_WARNING] : []),
   ];
 }
 
@@ -158,6 +160,7 @@ export async function renderDocumentPdf(
   const subject = [
     ...(model.lifecycle === "DRAFT" ? [DRAFT_WARNING] : []),
     ...(model.isTestDocument ? [TEST_WARNING] : []),
+    ...(model.isVoided ? [VOID_WARNING] : []),
   ].join(" · ") || "Issued CIV document";
   document.setSubject(subject);
   document.setKeywords(model.lifecycle === "DRAFT"
@@ -173,7 +176,7 @@ export async function renderDocumentPdf(
 
   const warnings = buildPdfPageWarnings(model).map((text) => ({
     text,
-    color: text === TEST_WARNING ? colors.red : colors.blue,
+    color: text === TEST_WARNING || text === VOID_WARNING ? colors.red : colors.blue,
   }));
   const contentTop = () => PAGE_HEIGHT - MARGIN - warnings.length * 27;
 
@@ -355,8 +358,11 @@ export async function renderDocumentPdf(
   }
   y -= 17;
   const transactionDetails = [
-    model.supplyDate ? `Supply date: ${formatDate(model.supplyDate)}` : null,
+    model.issuedAt ? `Issued at: ${new Date(model.issuedAt).toLocaleString("en-GH", { timeZone: "Africa/Accra" })}` : null,
+    model.supplyDateTime ? `Supply: ${new Date(model.supplyDateTime).toLocaleString("en-GH", { timeZone: "Africa/Accra" })}` : model.supplyDate ? `Supply date: ${formatDate(model.supplyDate)}` : null,
+    model.taxPointDateTime ? `Tax point: ${new Date(model.taxPointDateTime).toLocaleString("en-GH", { timeZone: "Africa/Accra" })}` : null,
     `Transaction: ${model.transactionType.replaceAll("_", " ").toLowerCase()}`,
+    model.title === "Receipt" ? `Receipt class: ${model.receiptType === "VAT_SALES_RECEIPT" ? model.isTestDocument ? "VAT sales receipt simulation" : "Authorized VAT sales receipt" : "Commercial receipt"}` : null,
     `Prices: ${model.priceMode === "TAX_INCLUSIVE" ? "Tax inclusive" : "Tax exclusive"}`,
   ].filter(Boolean).join(" · ");
   const transactionSize = fitTextSize(transactionDetails, regular, 8.5, 6, PAGE_WIDTH - MARGIN * 2);
@@ -368,7 +374,22 @@ export async function renderDocumentPdf(
     ensureSpace(adjustmentLines.length * 11 + 8);
     adjustmentLines.forEach((line, index) => page.drawText(line, { x: MARGIN, y: y - index * 11, size: 8.5, font: bold, color: colors.dark }));
     y -= adjustmentLines.length * 11 + 7;
+    const values = `Original supply value: ${amount(model.currency, model.adjustment.originalSupplyValue)} · Corrected supply value: ${amount(model.currency, model.adjustment.adjustedSupplyValue)} · Difference: ${amount(model.currency, model.adjustment.difference)} · Tax attributable: ${amount(model.currency, model.adjustment.taxAttributable)}`;
+    const valueLines = wrapText(values, regular, 8, PAGE_WIDTH - MARGIN * 2);
+    valueLines.forEach((line, index) => page.drawText(line, { x: MARGIN, y: y - index * 10, size: 8, font: regular, color: colors.muted }));
+    y -= valueLines.length * 10 + 5;
   }
+  if (model.servicePeriod) {
+    const period = `Service / rental period: ${new Date(model.servicePeriod.start).toLocaleString("en-GH", { timeZone: "Africa/Accra" })} to ${new Date(model.servicePeriod.end).toLocaleString("en-GH", { timeZone: "Africa/Accra" })}`;
+    const periodLines = wrapText(period, regular, 8, PAGE_WIDTH - MARGIN * 2);
+    periodLines.forEach((line, index) => page.drawText(line, { x: MARGIN, y: y - index * 10, size: 8, font: regular, color: colors.muted }));
+    y -= periodLines.length * 10 + 5;
+  }
+  const fiscalText = `Fiscal status: ${model.fiscalizationLabel}. CIV verification is separate from GRA certification.`;
+  const fiscalFont = model.fiscalizationLabel === "GRA Certified" ? bold : regular;
+  const fiscalLines = wrapText(fiscalText, fiscalFont, 8, PAGE_WIDTH - MARGIN * 2);
+  fiscalLines.forEach((line, index) => page.drawText(line, { x: MARGIN, y: y - index * 10, size: 8, font: fiscalFont, color: model.fiscalizationLabel === "GRA Certified" ? colors.dark : colors.red }));
+  y -= fiscalLines.length * 10 + 5;
   drawRule();
 
   const leftX = MARGIN;
@@ -534,6 +555,32 @@ export async function renderDocumentPdf(
     }
   }
 
+  if (model.payments.length) {
+    ensureSpace(40);
+    y -= 4;
+    drawLabel("Recorded payment events", MARGIN, y);
+    y -= 17;
+    for (const payment of model.payments) {
+      ensureSpace(14);
+      const paymentText = `${new Date(payment.occurredAt).toLocaleString("en-GH", { timeZone: "Africa/Accra" })} · ${amount(model.currency, payment.amount)}${payment.method ? ` · ${payment.method}` : ""}${payment.reference ? ` · Ref ${payment.reference}` : ""}${payment.isPartial ? " · Partial" : ""}`;
+      page.drawText(pdfSafeText(paymentText, regular), { x: MARGIN, y, size: fitTextSize(paymentText, regular, 8, 5.5, PAGE_WIDTH - MARGIN * 2), font: regular, color: colors.dark });
+      y -= 14;
+    }
+  }
+
+  if (model.isVoided) {
+    ensureSpace(48);
+    y -= 6;
+    drawLabel("Void record", MARGIN, y);
+    y -= 17;
+    const voidText = `Voided${model.voidedAt ? ` ${new Date(model.voidedAt).toLocaleString("en-GH", { timeZone: "Africa/Accra" })}` : ""}${model.voidReason ? ` · Reason: ${model.voidReason}` : ""}. The original immutable financial record is retained.`;
+    for (const line of wrapText(voidText, bold, 8.5, PAGE_WIDTH - MARGIN * 2)) {
+      ensureSpace(12);
+      page.drawText(line, { x: MARGIN, y, size: 8.5, font: bold, color: colors.red });
+      y -= 12;
+    }
+  }
+
   if (model.lifecycle === "ISSUED") {
     ensureSpace(verificationCode ? (verificationBarcode ? 106 : 58) : 42);
     y -= 8;
@@ -551,7 +598,7 @@ export async function renderDocumentPdf(
       }
       page.drawText(`Verification Code: ${pdfSafeText(verificationCode, bold)}`, { x: MARGIN, y, size: 9, font: bold, color: colors.dark });
       y -= 13;
-      page.drawText("Verify this document on CIV using the code above.", { x: MARGIN, y, size: 8, font: regular, color: colors.muted });
+      page.drawText("Verify this CIV document identity using the code above. This does not mean GRA certification.", { x: MARGIN, y, size: 8, font: regular, color: colors.muted });
       y -= 14;
     } else {
       page.drawText("Verification code unavailable for this historical document.", { x: MARGIN, y, size: 8.5, font: regular, color: colors.muted });
@@ -571,4 +618,4 @@ export function renderIssuedDocumentPdf(model: IssuedDocumentPdfModel, assets: {
   return renderDocumentPdf(model, assets);
 }
 
-export { DRAFT_WARNING, TEST_WARNING };
+export { DRAFT_WARNING, TEST_WARNING, VOID_WARNING };

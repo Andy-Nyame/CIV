@@ -5,6 +5,7 @@ import {
   formatAppliedRateLabel,
   type AppliedRateRow,
 } from "@/features/documents/applied-rates";
+import { publicFiscalizationLabel } from "@/features/documents/compliance";
 
 export type PdfDocumentType = "INVOICE" | "RECEIPT" | "VAT_INVOICE" | "CREDIT_NOTE" | "DEBIT_NOTE";
 
@@ -18,11 +19,19 @@ export type DocumentPdfModel = {
   issueDate: string;
   supplyDate: string | null;
   taxPointDate: string | null;
+  supplyDateTime: string | null;
+  taxPointDateTime: string | null;
   dueDate: string | null;
   issuedAt: string | null;
   isTestDocument: boolean;
+  isVoided: boolean;
+  voidReason: string | null;
+  voidedAt: string | null;
   logo: PdfLogoReference | null;
   transactionType: "SALE" | "SERVICE" | "HIRE_OR_LEASE" | "EXCHANGE" | "OTHER";
+  receiptType: "COMMERCIAL" | "VAT_SALES_RECEIPT";
+  servicePeriod: { start: string; end: string } | null;
+  fiscalizationLabel: "GRA Certified" | "GRA Fiscalization Required" | "Not a GRA tax document" | "GRA fiscalization not recorded";
   priceMode: "TAX_EXCLUSIVE" | "TAX_INCLUSIVE";
   adjustment: IssuedDocumentSnapshot["document"]["adjustment"];
   issuer: {
@@ -46,6 +55,7 @@ export type DocumentPdfModel = {
     taxpayerId: string | null;
     taxpayerIdLabel: "Ghana Card PIN" | "GRA TIN" | null;
     vatRegistrationStatus: "NOT_REGISTERED" | "PENDING" | "REGISTERED" | "DEREGISTERED" | null;
+    taxStatus: "ORDINARY_CONSUMER" | "TAXABLE_PERSON";
   } | null;
   lines: Array<{
     order: number;
@@ -73,6 +83,7 @@ export type DocumentPdfModel = {
   appliedRates: AppliedRateRow[];
   totals: IssuedDocumentSnapshot["totals"];
   notes: string | null;
+  payments: IssuedDocumentSnapshot["payments"];
   preparedBy: string;
   verificationCode: string | null;
 };
@@ -90,6 +101,7 @@ const titles: Record<PdfDocumentType, IssuedDocumentPdfModel["title"]> = {
 export function buildIssuedDocumentPdfModel(
   snapshot: IssuedDocumentSnapshot,
   persistedIsTestDocument: boolean,
+  lifecycle: { isVoided?: boolean; voidReason?: string | null; voidedAt?: Date | string | null } = {},
 ): IssuedDocumentPdfModel {
   const taxpayerId = snapshot.issuer.taxpayerId ?? snapshot.issuer.businessTin;
   const taxpayerIdLabel = taxpayerId
@@ -106,13 +118,26 @@ export function buildIssuedDocumentPdfModel(
     issueDate: snapshot.document.issueDate,
     supplyDate: snapshot.document.supplyDate,
     taxPointDate: snapshot.document.taxPointDate,
+    supplyDateTime: snapshot.document.supplyDateTime,
+    taxPointDateTime: snapshot.document.taxPointDateTime,
     dueDate: snapshot.document.dueDate,
     issuedAt: snapshot.document.issuedAt,
     // Either persisted flag is sufficient to retain the safety marking. A caller
     // cannot downgrade a TEST snapshot by changing request parameters or UI state.
     isTestDocument: persistedIsTestDocument || snapshot.document.isTestDocument,
+    isVoided: lifecycle.isVoided ?? false,
+    voidReason: lifecycle.voidReason ?? null,
+    voidedAt: lifecycle.voidedAt instanceof Date ? lifecycle.voidedAt.toISOString() : lifecycle.voidedAt ?? null,
     logo: snapshot.issuer.logo,
     transactionType: snapshot.document.transactionType,
+    receiptType: snapshot.document.receiptType,
+    servicePeriod: snapshot.document.servicePeriod,
+    fiscalizationLabel: publicFiscalizationLabel({
+      status: snapshot.document.fiscalization?.status ?? "NOT_RECORDED",
+      fiscalDocumentId: snapshot.document.fiscalization?.fiscalDocumentId,
+      timestamp: snapshot.document.fiscalization?.timestamp,
+      providerReference: snapshot.document.fiscalization?.providerReference,
+    }),
     priceMode: snapshot.document.priceMode,
     adjustment: snapshot.document.adjustment,
     issuer: {
@@ -136,6 +161,7 @@ export function buildIssuedDocumentPdfModel(
       taxpayerId: snapshot.customer.taxpayerId ?? snapshot.customer.businessTin,
       taxpayerIdLabel: snapshot.customer.taxpayerIdType === "GHANA_CARD_PIN" ? "Ghana Card PIN" : snapshot.customer.taxpayerIdType === "GRA_TIN" || snapshot.customer.taxpayerId || snapshot.customer.businessTin ? "GRA TIN" : null,
       vatRegistrationStatus: snapshot.customer.vatRegistrationStatus,
+      taxStatus: snapshot.customer.taxStatus,
     } : null,
     lines: snapshot.lines.map((line) => ({
       order: line.order,
@@ -168,6 +194,7 @@ export function buildIssuedDocumentPdfModel(
     appliedRates: buildSnapshotAppliedRateRows(snapshot),
     totals: snapshot.totals,
     notes: snapshot.document.notes,
+    payments: snapshot.payments,
     preparedBy: snapshot.issuedBy.displayName,
     verificationCode: snapshot.verification?.code ?? null,
   };
@@ -181,7 +208,11 @@ export function buildDraftDocumentPdfModel(input: {
     draftDate: string;
     supplyDate?: string | null;
     taxPointDate?: string | null;
+    supplyDateTime?: string | null;
+    taxPointDateTime?: string | null;
     transactionType?: "SALE" | "SERVICE" | "HIRE_OR_LEASE" | "EXCHANGE" | "OTHER";
+    receiptType?: "COMMERCIAL" | "VAT_SALES_RECEIPT";
+    servicePeriod?: { start: string; end: string } | null;
     priceMode?: "TAX_EXCLUSIVE" | "TAX_INCLUSIVE";
     adjustment?: IssuedDocumentSnapshot["document"]["adjustment"];
     dueDate: string | null;
@@ -193,6 +224,7 @@ export function buildDraftDocumentPdfModel(input: {
   lines: IssuedDocumentSnapshot["lines"];
   tax: IssuedDocumentSnapshot["tax"];
   totals: IssuedDocumentSnapshot["totals"];
+  payments?: IssuedDocumentSnapshot["payments"];
   preparedBy: string;
 }): DocumentPdfModel {
   const taxpayerId = input.issuer.taxpayerId ?? input.issuer.businessTin;
@@ -217,11 +249,24 @@ export function buildDraftDocumentPdfModel(input: {
     issueDate: input.document.draftDate,
     supplyDate: input.document.supplyDate ?? null,
     taxPointDate: input.document.taxPointDate ?? null,
+    supplyDateTime: input.document.supplyDateTime ?? null,
+    taxPointDateTime: input.document.taxPointDateTime ?? null,
     dueDate: input.document.dueDate,
     issuedAt: null,
     isTestDocument: input.document.isTestDocument,
+    isVoided: false,
+    voidReason: null,
+    voidedAt: null,
     logo: input.issuer.logo,
     transactionType: input.document.transactionType ?? "SALE",
+    receiptType: input.document.receiptType ?? "COMMERCIAL",
+    servicePeriod: input.document.servicePeriod ?? null,
+    fiscalizationLabel: input.document.type === "VAT_INVOICE"
+      || input.document.type === "CREDIT_NOTE"
+      || input.document.type === "DEBIT_NOTE"
+      || (input.document.type === "RECEIPT" && input.document.receiptType === "VAT_SALES_RECEIPT")
+      ? "GRA Fiscalization Required"
+      : "Not a GRA tax document",
     priceMode: input.document.priceMode ?? "TAX_EXCLUSIVE",
     adjustment: input.document.adjustment ?? null,
     issuer: {
@@ -245,6 +290,7 @@ export function buildDraftDocumentPdfModel(input: {
       taxpayerId: input.customer.taxpayerId ?? input.customer.businessTin,
       taxpayerIdLabel: input.customer.taxpayerIdType === "GHANA_CARD_PIN" ? "Ghana Card PIN" : input.customer.taxpayerIdType === "GRA_TIN" || input.customer.taxpayerId || input.customer.businessTin ? "GRA TIN" : null,
       vatRegistrationStatus: input.customer.vatRegistrationStatus,
+      taxStatus: input.customer.taxStatus,
     } : null,
     lines: input.lines.map((line) => ({
       order: line.order,
@@ -287,6 +333,7 @@ export function buildDraftDocumentPdfModel(input: {
     }),
     totals: input.totals,
     notes: input.document.notes,
+    payments: input.payments ?? [],
     preparedBy: input.preparedBy,
     verificationCode: null,
   };

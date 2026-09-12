@@ -6,6 +6,7 @@ import sharp from "sharp";
 
 import { CAPABILITIES, getDocumentAccessFilter } from "@/features/authorization/capabilities";
 import { authorizeWorkspaceById } from "@/features/authorization/context";
+import { Prisma } from "@/generated/prisma/client";
 import {
   buildCustomerSnapshot,
   buildIssuerSnapshot,
@@ -83,14 +84,15 @@ export async function loadDocumentPdfSource(input: PdfInput) {
     where: {
       id: parsedId.data,
       ...access,
-      status: { in: ["DRAFT", "ISSUED"] },
+      status: { in: ["DRAFT", "ISSUED", "VOIDED"] },
       archivedAt: null,
     },
     include: {
       snapshot: true,
       workspace: { include: { logo: true } },
       customer: true,
-      originalDocument: { select: { documentNumber: true, issueDate: true } },
+      originalDocument: { select: { documentNumber: true, issueDate: true, snapshot: { select: { payload: true } } } },
+      paymentEvents: { orderBy: { eventOrder: "asc" } },
       createdBy: { select: { name: true, email: true } },
       lines: { orderBy: { lineOrder: "asc" } },
     },
@@ -98,7 +100,7 @@ export async function loadDocumentPdfSource(input: PdfInput) {
 
   if (!document) throw new DocumentPdfUnavailableError("NOT_FOUND");
 
-  if (document.status === "ISSUED") {
+  if (document.status === "ISSUED" || document.status === "VOIDED") {
     if (!document.snapshot) throw new DocumentPdfUnavailableError("SNAPSHOT_UNAVAILABLE");
     const parsedSnapshot = issuedDocumentSnapshotSchema.safeParse(document.snapshot.payload);
     if (!parsedSnapshot.success) throw new DocumentPdfUnavailableError("SNAPSHOT_UNAVAILABLE");
@@ -112,7 +114,11 @@ export async function loadDocumentPdfSource(input: PdfInput) {
     // Mutable workspace, customer, line, and tax records loaded alongside the
     // row are deliberately ignored here. The immutable snapshot is the sole
     // issued-document source.
-    const model = buildIssuedDocumentPdfModel(parsedSnapshot.data, document.isTestDocument);
+    const model = buildIssuedDocumentPdfModel(parsedSnapshot.data, document.isTestDocument, {
+      isVoided: document.status === "VOIDED",
+      voidReason: document.voidReason,
+      voidedAt: document.voidedAt,
+    });
     return {
       lifecycle: "ISSUED" as const,
       documentId: document.id,
@@ -132,6 +138,13 @@ export async function loadDocumentPdfSource(input: PdfInput) {
     ? documentTaxSnapshotSchema.safeParse(document.taxCalculation)
     : { success: true as const, data: null };
   if (!parsedTax.success) throw new DocumentPdfUnavailableError("DRAFT_DATA_UNAVAILABLE");
+  const originalSnapshot = document.originalDocument?.snapshot
+    ? issuedDocumentSnapshotSchema.safeParse(document.originalDocument.snapshot.payload)
+    : null;
+  const originalSupplyValue = originalSnapshot?.success ? originalSnapshot.data.totals.subtotal : "0.00";
+  const adjustedSupplyValue = document.type === "CREDIT_NOTE"
+    ? new Prisma.Decimal(originalSupplyValue).sub(document.subtotal).toFixed(2)
+    : new Prisma.Decimal(originalSupplyValue).add(document.subtotal).toFixed(2);
 
   const model = buildDraftDocumentPdfModel({
     document: {
@@ -141,14 +154,25 @@ export async function loadDocumentPdfSource(input: PdfInput) {
       draftDate: document.draftDate.toISOString().slice(0, 10),
       supplyDate: document.supplyDate?.toISOString().slice(0, 10) ?? null,
       taxPointDate: document.taxPointDate?.toISOString().slice(0, 10) ?? null,
+      supplyDateTime: document.supplyDate?.toISOString() ?? null,
+      taxPointDateTime: document.taxPointDate?.toISOString() ?? null,
       transactionType: document.transactionType,
+      receiptType: document.receiptType,
+      servicePeriod: document.servicePeriodStart && document.servicePeriodEnd ? {
+        start: document.servicePeriodStart.toISOString(),
+        end: document.servicePeriodEnd.toISOString(),
+      } : null,
       priceMode: document.priceMode,
-      adjustment: document.originalDocumentId && document.adjustmentReason && document.originalDocument?.documentNumber && document.originalDocument.issueDate ? {
+      adjustment: document.originalDocumentId && document.adjustmentReason && originalSnapshot?.success ? {
         originalDocumentId: document.originalDocumentId,
-        originalDocumentNumber: document.originalDocument.documentNumber,
-        originalIssueDate: document.originalDocument.issueDate.toISOString().slice(0, 10),
+        originalDocumentNumber: originalSnapshot.data.document.documentNumber,
+        originalIssueDate: originalSnapshot.data.document.issueDate,
         reason: document.adjustmentReason,
         direction: document.type === "CREDIT_NOTE" ? "REDUCE" : "INCREASE",
+        originalSupplyValue,
+        adjustedSupplyValue,
+        difference: document.subtotal.toFixed(2),
+        taxAttributable: document.taxTotal.toFixed(2),
       } : null,
       dueDate: document.dueDate?.toISOString().slice(0, 10) ?? null,
       notes: document.notes,
@@ -171,9 +195,22 @@ export async function loadDocumentPdfSource(input: PdfInput) {
       exemptValue: document.exemptValue.toFixed(2),
       relievedValue: document.relievedValue.toFixed(2),
       totalTaxInclusiveValue: document.subtotal.add(document.taxTotal).toFixed(2),
-      withholding: document.withholdingApplied && document.withholdingReference ? { amount: document.withholdingAmount.toFixed(2), reference: document.withholdingReference, date: document.withholdingDate?.toISOString().slice(0, 10) ?? null } : null,
+      withholding: document.withholdingApplied && document.withholdingReference ? {
+        amount: document.withholdingAmount.toFixed(2),
+        reference: document.withholdingReference,
+        date: document.withholdingDate?.toISOString().slice(0, 10) ?? null,
+        withholdingAgent: document.withholdingAgent,
+        evidence: document.withholdingEvidence,
+      } : null,
       netPayable: document.netPayable.toFixed(2),
     },
+    payments: document.paymentEvents.map((event) => ({
+      occurredAt: event.occurredAt.toISOString(),
+      amount: event.amount.toFixed(2),
+      method: event.method,
+      reference: event.reference,
+      isPartial: event.isPartial,
+    })),
     preparedBy: document.createdBy.name?.trim() || document.createdBy.email || "Workspace member",
   });
   return {

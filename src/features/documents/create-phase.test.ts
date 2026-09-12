@@ -197,8 +197,8 @@ test("customers, catalogue entries, and drafts are isolated, authorized, snapsho
     assert.equal(draft.type, "INVOICE");
     assert.equal(draft.subtotal.toFixed(4), "1110.5000");
     assert.equal(draft.rateTotal.toFixed(4), "25.0100");
-    assert.equal(draft.taxTotal.toFixed(4), "222.1000");
-    assert.equal(draft.grandTotal.toFixed(4), "1357.6100");
+    assert.equal(draft.taxTotal.toFixed(4), "0.0000");
+    assert.equal(draft.grandTotal.toFixed(4), "1135.5100");
     assert.equal(draft.lines[2]?.description, "Logo Design");
     assert.equal(draft.lines[2]?.unitPrice.toFixed(4), "99.9900");
     assert.equal(draft.lines[3]?.rateNameSnapshot, "CREATE Test Rate");

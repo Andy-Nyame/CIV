@@ -4,8 +4,9 @@ import test from "node:test";
 import { Prisma } from "@/generated/prisma/client";
 import { adjustmentEffect, calculateDocumentLine, calculateDraftTotals, calculateNetPayable } from "@/features/documents/calculations";
 import { draftInputSchema } from "@/features/documents/validation";
+import { fiscalizationStatusForDraft, hasAuthoritativeGraCertification, isStatutoryTaxDocument, publicFiscalizationLabel } from "@/features/documents/compliance";
 import { workspaceSettingsSchema } from "@/features/workspaces/validation";
-import { determineTaxPoint, isVatEligibleAtTaxPoint } from "./eligibility";
+import { determineTaxPoint, determineTaxPointDateTime, isVatEligibleAtTaxPoint } from "./eligibility";
 import type { TrustedTaxComponent } from "./types";
 
 const components: TrustedTaxComponent[] = [
@@ -151,4 +152,41 @@ test("VAT registration dates and deliberate non-standard classification evidence
   assert.equal(draftInputSchema.safeParse({ ...documentBase, lines: [{ catalogItemId: null, customRateId: null, description: "Export", quantity: "1", unitPrice: "100", taxTreatment: "ZERO_RATED", taxTreatmentReason: "Export" }] }).success, false);
   assert.equal(draftInputSchema.safeParse({ ...documentBase, lines: [{ catalogItemId: null, customRateId: null, description: "Export", quantity: "1", unitPrice: "100", taxTreatment: "ZERO_RATED", taxTreatmentReason: "Export", taxTreatmentReference: "EXPORT-001" }] }).success, true);
   assert.equal(draftInputSchema.safeParse({ ...documentBase, lines: [{ catalogItemId: null, customRateId: null, description: "Relieved", quantity: "1", unitPrice: "100", reliefApplied: true, reliefReason: "Relief" }] }).success, false);
+  assert.equal(draftInputSchema.safeParse({ ...documentBase, lines: [{ catalogItemId: null, customRateId: null, description: "Exempt", quantity: "1", unitPrice: "100", taxTreatment: "EXEMPT", taxTreatmentReason: "Exempt category" }] }).success, false);
+});
+
+test("commercial and statutory document identities remain separate before GRA integration", () => {
+  assert.equal(isStatutoryTaxDocument("INVOICE"), false);
+  assert.equal(isStatutoryTaxDocument("RECEIPT", "COMMERCIAL"), false);
+  assert.equal(isStatutoryTaxDocument("RECEIPT", "VAT_SALES_RECEIPT"), true);
+  assert.equal(isStatutoryTaxDocument("VAT_INVOICE"), true);
+  assert.equal(fiscalizationStatusForDraft("INVOICE"), "NOT_REQUIRED");
+  assert.equal(fiscalizationStatusForDraft("VAT_INVOICE"), "REQUIRES_GRA");
+  assert.equal(fiscalizationStatusForDraft("CREDIT_NOTE"), "REQUIRES_GRA");
+  assert.equal(hasAuthoritativeGraCertification({ status: "CERTIFIED" }), false);
+  assert.equal(publicFiscalizationLabel({ status: "CERTIFIED" }), "GRA fiscalization not recorded");
+  assert.equal(publicFiscalizationLabel({ status: "CERTIFIED", fiscalDocumentId: "REAL-RETURN", timestamp: "2026-07-10T12:00:00.000Z", providerReference: "REAL-PROVIDER-REF" }), "GRA Certified");
+});
+
+test("tax point uses the earliest real supply, document, or payment event", () => {
+  const point = determineTaxPointDateTime({
+    supplyDate: "2026-07-10T14:00",
+    documentDate: "2026-07-11",
+    paymentDates: ["2026-07-10T09:30", "2026-07-09T16:45"],
+  });
+  assert.equal(point.toISOString(), "2026-07-09T16:45:00.000Z");
+});
+
+test("draft validation distinguishes taxable customers, receipt class, periods, and bounded payments", () => {
+  const base = {
+    type: "VAT_INVOICE", customerId: null, customerName: "Taxable Customer", customerTaxStatus: "TAXABLE_PERSON",
+    customerAddress: "Accra", customerTaxpayerIdType: "GRA_TIN", customerTaxpayerId: "TIN-001",
+    currency: "GHS", draftDate: "2026-07-10", supplyDate: "2026-07-10T09:15", dueDate: null,
+    notes: "", lines: [{ catalogItemId: null, customRateId: null, description: "Service", quantity: "1", unitPrice: "100" }],
+  };
+  assert.equal(draftInputSchema.safeParse(base).success, true);
+  assert.equal(draftInputSchema.safeParse({ ...base, customerTaxpayerId: "" }).success, true, "readiness, not draft entry, enforces taxable-recipient identity");
+  assert.equal(draftInputSchema.safeParse({ ...base, type: "INVOICE", receiptType: "VAT_SALES_RECEIPT" }).success, false);
+  assert.equal(draftInputSchema.safeParse({ ...base, transactionType: "HIRE_OR_LEASE" }).success, false);
+  assert.equal(draftInputSchema.safeParse({ ...base, paymentEvents: [{ occurredAt: "2026-07-09T12:00", amount: "0", method: null, reference: null }] }).success, false);
 });

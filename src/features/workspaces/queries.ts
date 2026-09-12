@@ -31,6 +31,7 @@ export async function getWorkspaceSettingsPageData() {
       taxpayerVerificationStatus: true,
       businessActivity: true,
       vatRegistrationStatus: true,
+      vatSalesReceiptAuthorization: true,
       vatRegistrationEffectiveDate: true,
       vatDeregistrationEffectiveDate: true,
       vatRegistered: true,

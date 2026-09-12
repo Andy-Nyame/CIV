@@ -10,15 +10,35 @@ function dateOnly(value: Date | string) {
   return date;
 }
 
+export function parseGhanaDateTime(value: Date | string) {
+  if (value instanceof Date) return new Date(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return new Date(`${value}T00:00:00.000Z`);
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(value)) return new Date(`${value.length === 16 ? `${value}:00` : value}.000Z`);
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) throw new Error("Invalid Ghana transaction date/time.");
+  return parsed;
+}
+
+export function determineTaxPointDateTime(input: {
+  supplyDate: Date | string;
+  documentDate: Date | string;
+  paymentDates?: Array<Date | string>;
+}) {
+  return [input.supplyDate, input.documentDate, ...(input.paymentDates ?? [])]
+    .map(parseGhanaDateTime)
+    .sort((a, b) => a.getTime() - b.getTime())[0]!;
+}
+
 export function determineTaxPoint(input: {
   supplyDate: Date | string;
   documentDate: Date | string;
   paymentDate?: Date | string | null;
 }) {
-  return [input.supplyDate, input.documentDate, input.paymentDate]
-    .filter((value): value is Date | string => Boolean(value))
-    .map(dateOnly)
-    .sort()[0]!;
+  return dateOnly(determineTaxPointDateTime({
+    supplyDate: input.supplyDate,
+    documentDate: input.documentDate,
+    paymentDates: input.paymentDate ? [input.paymentDate] : [],
+  }));
 }
 
 export function isVatEligibleAtTaxPoint(workspace: VatRegistrationContext, taxPointInput: Date | string) {

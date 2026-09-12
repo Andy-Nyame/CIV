@@ -9,6 +9,11 @@ import { createDraft } from "@/features/documents/service";
 import { issueDocument } from "@/features/documents/issuance";
 import { DocumentIssueReadinessError } from "@/features/documents/issuance";
 import { issuedDocumentSnapshotSchema } from "@/features/documents/snapshots";
+import { validateIssueReadiness } from "@/features/documents/readiness";
+import { voidIssuedDocument } from "@/features/documents/lifecycle";
+import { loadDocumentPdfSource } from "@/features/documents/pdf/service";
+import { buildPdfPageWarnings } from "@/features/documents/pdf/render";
+import { lookupPublicDocumentVerification } from "@/features/documents/verification/service";
 import { WorkspaceDocumentReadinessError } from "@/features/workspaces/document-readiness";
 import { db } from "@/lib/db";
 
@@ -83,11 +88,14 @@ test("Ghana 2026 mixed supplies, adjustments, withholding, and snapshots persist
       workspaceId: workspace.id,
       data: {
         ...common,
-        type: "INVOICE",
+        type: "VAT_INVOICE",
         withholdingApplied: true,
+        withholdingAgent: true,
         withholdingAmount: "50.00",
         withholdingReference: "WH-CERT-001",
+        withholdingEvidence: "WH-CERT-PDF-001",
         withholdingDate: "2026-07-11",
+        paymentEvents: [{ occurredAt: "2026-07-08T15:30", amount: "100.00", method: "Bank transfer", reference: "PAY-001" }],
         lines: [
           { catalogItemId: null, customRateId: customRate.id, description: "Standard service", quantity: "1", unitPrice: "1000.00", unitOfMeasure: "Service", discountAmount: "100.00", taxTreatment: "STANDARD_RATED" },
           // Omit the line override deliberately: the saved item's ZERO_RATED default must be copied to the document line.
@@ -111,21 +119,52 @@ test("Ghana 2026 mixed supplies, adjustments, withholding, and snapshots persist
     assert.equal(mixed.lines[1]?.taxTreatmentReference, "EXPORT-EVIDENCE-001");
     assert.equal(mixed.lines[1]?.unitOfMeasure, "Box");
 
-    const mixedIssue = await issueDocument({ actorUserId: user.id, workspaceId: workspace.id, documentId: mixed.id });
+    await assert.rejects(
+      issueDocument({ actorUserId: user.id, workspaceId: workspace.id, documentId: mixed.id }),
+      (error) => error instanceof DocumentIssueReadinessError && error.errors.some(({ code }) => code === "GRA_FISCALIZATION_ACKNOWLEDGEMENT_REQUIRED"),
+    );
+    const mixedIssue = await issueDocument({ actorUserId: user.id, workspaceId: workspace.id, documentId: mixed.id, acknowledgeGraRequirement: true });
     const originalPayload = (await db.documentSnapshot.findUniqueOrThrow({ where: { documentId: mixed.id } })).payload;
     const originalSnapshot = structuredClone(issuedDocumentSnapshotSchema.parse(originalPayload));
-    assert.equal(originalSnapshot.snapshotVersion, 2);
+    assert.equal(originalSnapshot.snapshotVersion, 3);
     assert.equal(originalSnapshot.document.supplyDate, "2026-07-09");
-    assert.equal(originalSnapshot.document.taxPointDate, "2026-07-09");
+    assert.equal(originalSnapshot.document.taxPointDate, "2026-07-08");
+    assert.equal(originalSnapshot.document.taxPointDateTime, "2026-07-08T15:30:00.000Z");
+    assert.equal(originalSnapshot.document.fiscalization?.status, "REQUIRES_GRA");
     assert.equal(originalSnapshot.issuer.vatRegistrationStatus, "REGISTERED");
     assert.equal(originalSnapshot.issuer.businessActivity, "BOTH");
+    assert.equal(originalSnapshot.customer?.taxStatus, "ORDINARY_CONSUMER");
+    assert.equal(originalSnapshot.customer?.taxpayerId, null, "ordinary consumers do not need a taxpayer identity");
     assert.equal(originalSnapshot.lines[0]?.discount, "100.00");
     assert.equal(originalSnapshot.lines[1]?.taxTreatment, "ZERO_RATED");
     assert.equal(originalSnapshot.lines[3]?.relief?.reference, "RELIEF-SUPPORT-001");
     assert.equal(originalSnapshot.totals.withholding?.amount, "50.00");
+    assert.equal(originalSnapshot.totals.withholding?.withholdingAgent, true);
+    assert.equal(originalSnapshot.totals.withholding?.evidence, "WH-CERT-PDF-001");
+    assert.equal(originalSnapshot.payments[0]?.isPartial, true);
     assert.equal(originalSnapshot.totals.trustedTax, "180.00");
     assert.equal(originalSnapshot.totals.netPayable, "1407.00");
     assert.equal(originalSnapshot.verification?.code, mixedIssue.verificationCode);
+
+    const pdfBefore = await loadDocumentPdfSource({ actorUserId: user.id, workspaceId: workspace.id, documentId: mixed.id });
+    const pdfAgain = await loadDocumentPdfSource({ actorUserId: user.id, workspaceId: workspace.id, documentId: mixed.id });
+    assert.deepEqual(pdfAgain.snapshot, pdfBefore.snapshot);
+    assert.equal(await db.documentSnapshot.count({ where: { documentId: mixed.id } }), 1);
+    assert.equal((await db.document.findUniqueOrThrow({ where: { id: mixed.id } })).verificationCode, mixedIssue.verificationCode);
+
+    const missingTaxIdentity = await createDraft({
+      actorUserId: user.id,
+      workspaceId: workspace.id,
+      data: {
+        ...common,
+        type: "VAT_INVOICE",
+        customerName: "Taxable Recipient Ltd",
+        customerTaxStatus: "TAXABLE_PERSON",
+        lines: [{ catalogItemId: null, customRateId: null, description: "Taxable service", quantity: "1", unitPrice: "100.00", taxTreatment: "STANDARD_RATED" }],
+      },
+    });
+    const taxableReadiness = await validateIssueReadiness({ actorUserId: user.id, workspaceId: workspace.id, documentId: missingTaxIdentity.id });
+    assert.equal(taxableReadiness.errors.some(({ code }) => code === "CUSTOMER_TAX_IDENTITY_REQUIRED"), true);
 
     const exemptVatDraft = await createDraft({
       actorUserId: user.id,
@@ -137,13 +176,28 @@ test("Ghana 2026 mixed supplies, adjustments, withholding, and snapshots persist
       },
     });
     await assert.rejects(
-      issueDocument({ actorUserId: user.id, workspaceId: workspace.id, documentId: exemptVatDraft.id }),
+      issueDocument({ actorUserId: user.id, workspaceId: workspace.id, documentId: exemptVatDraft.id, acknowledgeGraRequirement: true }),
       (error) => error instanceof DocumentIssueReadinessError && error.errors.some(({ code }) => code === "VAT_INVOICE_EXEMPT_ONLY"),
+    );
+
+    const unauthorizedVatSalesReceipt = await createDraft({
+      actorUserId: user.id,
+      workspaceId: workspace.id,
+      data: {
+        ...common,
+        type: "RECEIPT",
+        receiptType: "VAT_SALES_RECEIPT",
+        lines: [{ catalogItemId: null, customRateId: null, description: "Authorized-receipt path check", quantity: "1", unitPrice: "100.00", taxTreatment: "STANDARD_RATED" }],
+      },
+    });
+    await assert.rejects(
+      issueDocument({ actorUserId: user.id, workspaceId: workspace.id, documentId: unauthorizedVatSalesReceipt.id, acknowledgeGraRequirement: true }),
+      (error) => error instanceof DocumentIssueReadinessError && error.errors.some(({ code }) => code === "VAT_SALES_RECEIPT_NOT_AUTHORIZED"),
     );
 
     await db.workspace.update({
       where: { id: workspace.id },
-      data: { vatRegistered: false, vatRegistrationStatus: "NOT_REGISTERED" },
+      data: { vatRegistered: false, vatRegistrationStatus: "NOT_REGISTERED", vatSalesReceiptAuthorization: "AUTHORIZED" },
     });
     await updateCatalogueItem({
       actorUserId: user.id,
@@ -160,6 +214,15 @@ test("Ghana 2026 mixed supplies, adjustments, withholding, and snapshots persist
     });
     assert.equal(nonRegisteredReceipt.taxTotal.toFixed(2), "0.00");
     assert.equal(nonRegisteredReceipt.grandTotal.toFixed(2), "100.00");
+    const ineligibleVatSalesReceipt = await createDraft({
+      actorUserId: user.id,
+      workspaceId: workspace.id,
+      data: { ...common, type: "RECEIPT", receiptType: "VAT_SALES_RECEIPT", lines: [{ catalogItemId: null, customRateId: null, description: "Ineligible VAT sales receipt", quantity: "1", unitPrice: "100.00", taxTreatment: "STANDARD_RATED" }] },
+    });
+    await assert.rejects(
+      issueDocument({ actorUserId: user.id, workspaceId: workspace.id, documentId: ineligibleVatSalesReceipt.id, acknowledgeGraRequirement: true }),
+      (error) => error instanceof DocumentIssueReadinessError && error.errors.some(({ code }) => code === "VAT_REGISTRATION_REQUIRED"),
+    );
     await assert.rejects(
       createDraft({ actorUserId: user.id, workspaceId: workspace.id, data: { ...common, type: "VAT_INVOICE", lines: [{ catalogItemId: null, customRateId: null, description: "Blocked VAT invoice", quantity: "1", unitPrice: "100.00", discountAmount: "0.00", taxTreatment: "STANDARD_RATED" }] } }),
       WorkspaceDocumentReadinessError,
@@ -178,17 +241,31 @@ test("Ghana 2026 mixed supplies, adjustments, withholding, and snapshots persist
     const debit = await createDraft({ actorUserId: user.id, workspaceId: workspace.id, data: { ...adjustmentBase, type: "DEBIT_NOTE" } });
     assert.equal(credit.taxTotal.toFixed(2), "20.00");
     assert.equal(debit.taxTotal.toFixed(2), "20.00");
-    const creditIssue = await issueDocument({ actorUserId: user.id, workspaceId: workspace.id, documentId: credit.id });
-    const debitIssue = await issueDocument({ actorUserId: user.id, workspaceId: workspace.id, documentId: debit.id });
+    const creditIssue = await issueDocument({ actorUserId: user.id, workspaceId: workspace.id, documentId: credit.id, acknowledgeGraRequirement: true });
+    const debitIssue = await issueDocument({ actorUserId: user.id, workspaceId: workspace.id, documentId: debit.id, acknowledgeGraRequirement: true });
     assert.match(creditIssue.documentNumber, /^CRN-\d{6}$/);
     assert.match(debitIssue.documentNumber, /^DBN-\d{6}$/);
     const creditSnapshot = issuedDocumentSnapshotSchema.parse((await db.documentSnapshot.findUniqueOrThrow({ where: { documentId: credit.id } })).payload);
     const debitSnapshot = issuedDocumentSnapshotSchema.parse((await db.documentSnapshot.findUniqueOrThrow({ where: { documentId: debit.id } })).payload);
     assert.equal(creditSnapshot.document.adjustment?.originalDocumentNumber, mixedIssue.documentNumber);
     assert.equal(creditSnapshot.document.adjustment?.direction, "REDUCE");
+    assert.equal(creditSnapshot.document.adjustment?.originalSupplyValue, "1250.00");
+    assert.equal(creditSnapshot.document.adjustment?.adjustedSupplyValue, "1150.00");
+    assert.equal(creditSnapshot.document.adjustment?.difference, "100.00");
+    assert.equal(creditSnapshot.document.adjustment?.taxAttributable, "20.00");
     assert.equal(debitSnapshot.document.adjustment?.direction, "INCREASE");
     assert.equal(creditSnapshot.tax?.components.find(({ code }) => code === "VAT")?.rate, "15");
     assert.deepEqual(issuedDocumentSnapshotSchema.parse((await db.documentSnapshot.findUniqueOrThrow({ where: { documentId: mixed.id } })).payload), originalSnapshot);
+
+    const voided = await voidIssuedDocument({ actorUserId: user.id, workspaceId: workspace.id, documentId: mixed.id, reason: "Original issued in error; retained for audit." });
+    assert.equal(voided.idempotent, false);
+    const voidRetry = await voidIssuedDocument({ actorUserId: user.id, workspaceId: workspace.id, documentId: mixed.id, reason: "Original issued in error; retained for audit." });
+    assert.equal(voidRetry.idempotent, true);
+    assert.deepEqual(issuedDocumentSnapshotSchema.parse((await db.documentSnapshot.findUniqueOrThrow({ where: { documentId: mixed.id } })).payload), originalSnapshot);
+    assert.equal((await lookupPublicDocumentVerification(mixedIssue.verificationCode)).status, "VOID");
+    const voidPdf = await loadDocumentPdfSource({ actorUserId: user.id, workspaceId: workspace.id, documentId: mixed.id });
+    assert.deepEqual(buildPdfPageWarnings(voidPdf.model), ["VOID — NOT VALID"]);
+    assert.equal(voidPdf.model.verificationCode, mixedIssue.verificationCode);
   } finally {
     if (workspaceId) {
       await db.auditEvent.deleteMany({ where: { workspaceId } });

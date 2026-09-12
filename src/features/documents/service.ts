@@ -9,13 +9,14 @@ import { businessDataTransactionOptions, lockBusinessResource } from "@/features
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { requireWorkspaceDocumentReadinessInTransaction } from "@/features/workspaces/document-readiness-service";
-import { determineTaxPoint, isVatEligibleAtTaxPoint } from "@/features/tax/eligibility";
+import { determineTaxPointDateTime, isVatEligibleAtTaxPoint, parseGhanaDateTime } from "@/features/tax/eligibility";
 import { resolveGhanaVatVersion } from "@/features/tax/resolver";
 import { buildTaxSnapshot } from "@/features/tax/snapshot";
 import type { TrustedTaxComponent, TrustedTaxVersion } from "@/features/tax/types";
 import { calculateDocumentLine, calculateDraftTotals, calculateNetPayable } from "./calculations";
 import { issuedDocumentSnapshotSchema } from "./snapshots";
 import { documentIdSchema, draftInputSchema } from "./validation";
+import { fiscalizationStatusForDraft, isStatutoryTaxDocument } from "./compliance";
 
 function draftReference() { return `DRAFT-${randomBytes(6).toString("hex").toUpperCase()}`; }
 
@@ -35,6 +36,7 @@ type DraftCustomerInput = {
   customerTaxpayerIdType?: "GHANA_CARD_PIN" | "GRA_TIN" | null;
   customerTaxpayerId?: string | null;
   customerVatRegistrationStatus?: "NOT_REGISTERED" | "PENDING" | "REGISTERED" | "DEREGISTERED" | null;
+  customerTaxStatus?: "ORDINARY_CONSUMER" | "TAXABLE_PERSON";
 };
 
 type StoredDraftCustomer = {
@@ -42,6 +44,7 @@ type StoredDraftCustomer = {
   customerPhone: string | null; customerAddress: string | null; customerBusinessTin: string | null;
   customerTaxpayerIdType: "GHANA_CARD_PIN" | "GRA_TIN" | null; customerTaxpayerId: string | null;
   customerVatRegistrationStatus: "NOT_REGISTERED" | "PENDING" | "REGISTERED" | "DEREGISTERED" | null;
+  customerTaxStatus: "ORDINARY_CONSUMER" | "TAXABLE_PERSON";
 };
 
 type CustomerAutoSave = (input: { actorUserId: string; workspaceId: string; documentId: string }) => Promise<string | null>;
@@ -54,20 +57,22 @@ async function resolveDraftCustomer(
   existing?: StoredDraftCustomer,
 ): Promise<StoredDraftCustomer> {
   const sameName = existing?.customerName?.trim().toLowerCase() === customer.customerName.toLowerCase();
+  const explicitTaxIdentity = customer.customerTaxStatus === "TAXABLE_PERSON";
   if (!customer.customerId) return {
     customerId: null,
     customerName: customer.customerName,
     customerEmail: customer.customerEmail !== undefined ? customer.customerEmail : sameName ? existing.customerEmail : null,
     customerPhone: customer.customerPhone !== undefined ? customer.customerPhone : sameName ? existing.customerPhone : null,
-    customerAddress: customer.customerAddress !== undefined ? customer.customerAddress : sameName ? existing.customerAddress : null,
+    customerAddress: explicitTaxIdentity && customer.customerAddress !== undefined ? customer.customerAddress : sameName ? existing.customerAddress : null,
     customerBusinessTin: customer.customerBusinessTin !== undefined ? customer.customerBusinessTin : sameName ? existing.customerBusinessTin : null,
-    customerTaxpayerIdType: customer.customerTaxpayerIdType !== undefined ? customer.customerTaxpayerIdType : sameName ? existing.customerTaxpayerIdType : null,
-    customerTaxpayerId: customer.customerTaxpayerId !== undefined ? customer.customerTaxpayerId : sameName ? existing.customerTaxpayerId : null,
-    customerVatRegistrationStatus: customer.customerVatRegistrationStatus !== undefined ? customer.customerVatRegistrationStatus : sameName ? existing.customerVatRegistrationStatus : null,
+    customerTaxpayerIdType: explicitTaxIdentity && customer.customerTaxpayerIdType !== undefined ? customer.customerTaxpayerIdType : sameName ? existing.customerTaxpayerIdType : null,
+    customerTaxpayerId: explicitTaxIdentity && customer.customerTaxpayerId !== undefined ? customer.customerTaxpayerId : sameName ? existing.customerTaxpayerId : null,
+    customerVatRegistrationStatus: explicitTaxIdentity && customer.customerVatRegistrationStatus !== undefined ? customer.customerVatRegistrationStatus : sameName ? existing.customerVatRegistrationStatus : null,
+    customerTaxStatus: customer.customerTaxStatus ?? (sameName ? existing?.customerTaxStatus : null) ?? "ORDINARY_CONSUMER",
   };
   const saved = await tx.customer.findFirst({
     where: { id: customer.customerId, workspaceId, ...(customer.customerId === existing?.customerId ? {} : { archivedAt: null }) },
-    select: { id: true, name: true, email: true, phone: true, address: true, businessTin: true, taxpayerIdType: true, taxpayerId: true, vatRegistrationStatus: true },
+    select: { id: true, name: true, email: true, phone: true, address: true, businessTin: true, taxpayerIdType: true, taxpayerId: true, vatRegistrationStatus: true, taxStatus: true },
   });
   if (!saved) throw new BusinessDataValidationError({ customerId: ["Customer is unavailable."] });
   const preserveExisting = customer.customerId === existing?.customerId && sameName;
@@ -76,11 +81,12 @@ async function resolveDraftCustomer(
     customerName: customer.customerName,
     customerEmail: customer.customerEmail !== undefined ? customer.customerEmail : preserveExisting ? existing.customerEmail : saved.email,
     customerPhone: customer.customerPhone !== undefined ? customer.customerPhone : preserveExisting ? existing.customerPhone : saved.phone,
-    customerAddress: customer.customerAddress !== undefined ? customer.customerAddress : preserveExisting ? existing.customerAddress : saved.address,
+    customerAddress: explicitTaxIdentity && customer.customerAddress !== undefined ? customer.customerAddress : preserveExisting ? existing.customerAddress : saved.address,
     customerBusinessTin: customer.customerBusinessTin !== undefined ? customer.customerBusinessTin : preserveExisting ? existing.customerBusinessTin : saved.businessTin,
-    customerTaxpayerIdType: customer.customerTaxpayerIdType !== undefined ? customer.customerTaxpayerIdType : preserveExisting ? existing.customerTaxpayerIdType : saved.taxpayerIdType,
-    customerTaxpayerId: customer.customerTaxpayerId !== undefined ? customer.customerTaxpayerId : preserveExisting ? existing.customerTaxpayerId : saved.taxpayerId,
-    customerVatRegistrationStatus: customer.customerVatRegistrationStatus !== undefined ? customer.customerVatRegistrationStatus : preserveExisting ? existing.customerVatRegistrationStatus : saved.vatRegistrationStatus,
+    customerTaxpayerIdType: explicitTaxIdentity && customer.customerTaxpayerIdType !== undefined ? customer.customerTaxpayerIdType : preserveExisting ? existing.customerTaxpayerIdType : saved.taxpayerIdType,
+    customerTaxpayerId: explicitTaxIdentity && customer.customerTaxpayerId !== undefined ? customer.customerTaxpayerId : preserveExisting ? existing.customerTaxpayerId : saved.taxpayerId,
+    customerVatRegistrationStatus: explicitTaxIdentity && customer.customerVatRegistrationStatus !== undefined ? customer.customerVatRegistrationStatus : preserveExisting ? existing.customerVatRegistrationStatus : saved.vatRegistrationStatus,
+    customerTaxStatus: customer.customerTaxStatus ?? saved.taxStatus,
   };
 }
 
@@ -93,7 +99,7 @@ export async function autoSaveDocumentCustomer(input: {
     await requireWorkspaceCapabilityInTransaction(tx, input.actorUserId, input.workspaceId, CAPABILITIES.CREATE_DOCUMENT);
     const document = await tx.document.findFirst({
       where: { id: input.documentId, workspaceId: input.workspaceId, status: "DRAFT", archivedAt: null },
-      select: { customerId: true, customerName: true, customerEmail: true, customerPhone: true, customerAddress: true, customerBusinessTin: true, customerTaxpayerIdType: true, customerTaxpayerId: true, customerVatRegistrationStatus: true },
+      select: { customerId: true, customerName: true, customerEmail: true, customerPhone: true, customerAddress: true, customerBusinessTin: true, customerTaxpayerIdType: true, customerTaxpayerId: true, customerVatRegistrationStatus: true, customerTaxStatus: true },
     });
     if (!document?.customerName || document.customerId) return document?.customerId ?? null;
 
@@ -122,6 +128,7 @@ export async function autoSaveDocumentCustomer(input: {
         taxpayerIdType: document.customerTaxpayerIdType,
         taxpayerId: document.customerTaxpayerId,
         vatRegistrationStatus: document.customerVatRegistrationStatus,
+        taxStatus: document.customerTaxStatus,
       },
       select: { id: true },
     });
@@ -186,8 +193,8 @@ async function prepareLines(
     if (taxTreatment !== "STANDARD_RATED" && !taxTreatmentReason?.trim()) {
       throw new BusinessDataValidationError({ lines: ["Every zero-rated or exempt line needs a classification reason."] });
     }
-    if (taxTreatment === "ZERO_RATED" && !taxTreatmentReference?.trim()) {
-      throw new BusinessDataValidationError({ lines: ["Every zero-rated line needs a supporting reference."] });
+    if (taxTreatment !== "STANDARD_RATED" && !taxTreatmentReference?.trim()) {
+      throw new BusinessDataValidationError({ lines: ["Every zero-rated or exempt line needs a supporting classification/reference."] });
     }
     const previous = line.id ? existingReferences.lines.get(line.id) : null;
     const preserveRateSnapshot = Boolean(previous && previous.customRateId === line.customRateId && previous.rateTypeSnapshot && previous.rateValueSnapshot);
@@ -260,7 +267,9 @@ async function resolveCalculationContext(
   },
   parsed: ReturnType<typeof draftInputSchema.parse>,
 ) {
-  const taxPointDate = determineTaxPoint({ supplyDate: parsed.supplyDate, documentDate: parsed.draftDate });
+  const paymentDates = parsed.paymentEvents.map(({ occurredAt }) => occurredAt);
+  const taxPointDateTime = determineTaxPointDateTime({ supplyDate: parsed.supplyDate, documentDate: parsed.draftDate, paymentDates });
+  const taxPointDate = taxPointDateTime;
   const supplierVatEligible = isVatEligibleAtTaxPoint(workspace, taxPointDate);
   if (["CREDIT_NOTE", "DEBIT_NOTE"].includes(parsed.type)) {
     const original = parsed.originalDocumentId ? await tx.document.findFirst({
@@ -287,25 +296,17 @@ async function resolveCalculationContext(
       profile: originalSnapshot.data.tax.profile,
       components,
     } : null;
-    return { taxPointDate, supplierVatEligible: components.length > 0, statutoryComponents: components, taxVersion, original, originalSnapshot: originalSnapshot.data };
+    return { taxPointDate, taxPointDateTime, supplierVatEligible: components.length > 0, statutoryComponents: components, taxVersion, original, originalSnapshot: originalSnapshot.data };
   }
-  const itemDefaults = parsed.lines.some((line) => line.catalogItemId && line.taxTreatment === undefined)
-    ? new Map((await tx.itemService.findMany({
-        where: { workspaceId, id: { in: parsed.lines.flatMap((line) => line.catalogItemId ? [line.catalogItemId] : []) } },
-        select: { id: true, defaultTaxTreatment: true },
-      })).map((item) => [item.id, item.defaultTaxTreatment]))
-    : new Map<string, "STANDARD_RATED" | "ZERO_RATED" | "EXEMPT">();
-  const needsTaxVersion = supplierVatEligible && (
-    parsed.type === "VAT_INVOICE" ||
-    parsed.lines.some((line) => (line.taxTreatment ?? (line.catalogItemId ? itemDefaults.get(line.catalogItemId) : undefined) ?? "STANDARD_RATED") === "STANDARD_RATED" && !line.reliefApplied)
-  );
+  const statutoryTaxDocument = isStatutoryTaxDocument(parsed.type, parsed.receiptType);
+  const needsTaxVersion = supplierVatEligible && statutoryTaxDocument;
   if (needsTaxVersion && parsed.currency !== "GHS") {
     throw new BusinessDataValidationError({
       currency: ["Documents charging Ghana VAT-family taxes must use GHS."],
     });
   }
   const taxVersion = needsTaxVersion ? await resolveGhanaVatVersion(taxPointDate, tx) : null;
-  return { taxPointDate, supplierVatEligible, statutoryComponents: taxVersion?.components ?? [], taxVersion, original: null, originalSnapshot: null };
+  return { taxPointDate, taxPointDateTime, supplierVatEligible: supplierVatEligible && statutoryTaxDocument, statutoryComponents: taxVersion?.components ?? [], taxVersion, original: null, originalSnapshot: null };
 }
 
 function prepareDocumentCalculation(
@@ -314,6 +315,12 @@ function prepareDocumentCalculation(
   parsed: ReturnType<typeof draftInputSchema.parse>,
 ) {
   const { withholdingAmount, netPayable } = calculateNetPayable(totals.grandTotal, parsed.withholdingApplied, parsed.withholdingAmount);
+  const paymentTotal = parsed.paymentEvents.reduce((sum, event) => sum.add(event.amount), new Prisma.Decimal(0));
+  if (paymentTotal.gt(totals.grandTotal)) throw new BusinessDataValidationError({ paymentEvents: ["Recorded payments cannot exceed the document total."] });
+  if (parsed.type === "CREDIT_NOTE" && context.originalSnapshot && totals.subtotal.gt(context.originalSnapshot.totals.subtotal)) {
+    throw new BusinessDataValidationError({ lines: ["A credit note cannot reduce the original supply below zero."] });
+  }
+  if (parsed.withholdingApplied && withholdingAmount.gt(totals.grandTotal)) throw new BusinessDataValidationError({ withholdingAmount: ["VAT withholding cannot exceed the gross document total."] });
   const snapshotComponents = totals.taxComponents.length ? totals.taxComponents : context.taxVersion?.components.map((component) => ({
     ...component,
     calculationBase: "0.00",
@@ -339,8 +346,10 @@ function prepareDocumentCalculation(
     exemptValue: totals.exemptValue,
     relievedValue: totals.relievedValue,
     withholdingApplied: parsed.withholdingApplied,
+    withholdingAgent: parsed.withholdingApplied && parsed.withholdingAgent,
     withholdingAmount,
     withholdingReference: parsed.withholdingApplied ? parsed.withholdingReference : null,
+    withholdingEvidence: parsed.withholdingApplied ? parsed.withholdingEvidence : null,
     withholdingDate: parsed.withholdingApplied && parsed.withholdingDate ? new Date(`${parsed.withholdingDate}T00:00:00.000Z`) : null,
     netPayable,
     taxCalculation,
@@ -350,7 +359,7 @@ function prepareDocumentCalculation(
 export async function createDraft(input: { actorUserId: string; workspaceId: string; data: unknown }, options: DraftServiceOptions = {}) {
   const parsed = draftInputSchema.safeParse(withBackwardCompatibleDraftDefaults(input.data)); if (!parsed.success) throw new BusinessDataValidationError(parsed.error.flatten().fieldErrors);
   const document = await db.$transaction(async (tx) => {
-    const taxPointDate = determineTaxPoint({ supplyDate: parsed.data.supplyDate, documentDate: parsed.data.draftDate });
+    const taxPointDate = determineTaxPointDateTime({ supplyDate: parsed.data.supplyDate, documentDate: parsed.data.draftDate, paymentDates: parsed.data.paymentEvents.map(({ occurredAt }) => occurredAt) });
     const { readiness, workspace } = await requireWorkspaceDocumentReadinessInTransaction({
       actorUserId: input.actorUserId,
       workspaceId: input.workspaceId,
@@ -365,7 +374,7 @@ export async function createDraft(input: { actorUserId: string; workspaceId: str
     let document = null;
     for (let attempt = 0; attempt < 5 && !document; attempt++) {
       try {
-        document = await tx.document.create({ data: { workspaceId: input.workspaceId, createdByUserId: input.actorUserId, ...customer, originalDocumentId: parsed.data.originalDocumentId, adjustmentReason: parsed.data.adjustmentReason, type: parsed.data.type, status: "DRAFT", isTestDocument: readiness.isTestWorkspace, draftReference: draftReference(), documentNumber: null, currency: parsed.data.currency, draftDate: new Date(`${parsed.data.draftDate}T00:00:00.000Z`), dueDate: parsed.data.dueDate ? new Date(`${parsed.data.dueDate}T00:00:00.000Z`) : null, supplyDate: new Date(`${parsed.data.supplyDate}T00:00:00.000Z`), taxPointDate: new Date(`${calculationContext.taxPointDate}T00:00:00.000Z`), transactionType: parsed.data.transactionType, priceMode: parsed.data.priceMode, notes: parsed.data.notes, ...calculation, lines: { create: prepared } }, include: { lines: true } });
+        document = await tx.document.create({ data: { workspaceId: input.workspaceId, createdByUserId: input.actorUserId, ...customer, originalDocumentId: parsed.data.originalDocumentId, adjustmentReason: parsed.data.adjustmentReason, type: parsed.data.type, receiptType: parsed.data.receiptType, fiscalizationStatus: fiscalizationStatusForDraft(parsed.data.type, parsed.data.receiptType), status: "DRAFT", isTestDocument: readiness.isTestWorkspace, draftReference: draftReference(), documentNumber: null, currency: parsed.data.currency, draftDate: new Date(`${parsed.data.draftDate}T00:00:00.000Z`), dueDate: parsed.data.dueDate ? new Date(`${parsed.data.dueDate}T00:00:00.000Z`) : null, supplyDate: parseGhanaDateTime(parsed.data.supplyDate), taxPointDate: calculationContext.taxPointDateTime, transactionType: parsed.data.transactionType, servicePeriodStart: parsed.data.servicePeriodStart ? parseGhanaDateTime(parsed.data.servicePeriodStart) : null, servicePeriodEnd: parsed.data.servicePeriodEnd ? parseGhanaDateTime(parsed.data.servicePeriodEnd) : null, priceMode: parsed.data.priceMode, notes: parsed.data.notes, ...calculation, paymentEvents: { create: parsed.data.paymentEvents.map((event, index) => ({ occurredAt: parseGhanaDateTime(event.occurredAt), amount: event.amount, method: event.method, reference: event.reference, isPartial: new Prisma.Decimal(event.amount).lt(totals.grandTotal), eventOrder: index + 1 })) }, lines: { create: prepared } }, include: { lines: true } });
       } catch (error) {
         const isDraftReferenceCollision = error instanceof Prisma.PrismaClientKnownRequestError
           && error.code === "P2002"
@@ -386,7 +395,7 @@ export async function updateDraft(input: { actorUserId: string; workspaceId: str
   if (!id.success || !parsed.success) throw new BusinessDataValidationError(parsed.success ? {} : parsed.error.flatten().fieldErrors);
   const document = await db.$transaction(async (tx) => {
     await lockBusinessResource(tx, `document:${id.data}`); const { document: before } = await requireDocumentAccessInTransaction(tx, input.actorUserId, input.workspaceId, id.data);
-    const taxPointDate = determineTaxPoint({ supplyDate: parsed.data.supplyDate, documentDate: parsed.data.draftDate });
+    const taxPointDate = determineTaxPointDateTime({ supplyDate: parsed.data.supplyDate, documentDate: parsed.data.draftDate, paymentDates: parsed.data.paymentEvents.map(({ occurredAt }) => occurredAt) });
     const { readiness, workspace } = await requireWorkspaceDocumentReadinessInTransaction({
       actorUserId: input.actorUserId,
       workspaceId: input.workspaceId,
@@ -406,9 +415,26 @@ export async function updateDraft(input: { actorUserId: string; workspaceId: str
       lines: new Map(existingLines.map((line) => [line.id, line])),
     });
     const calculation = prepareDocumentCalculation(totals, calculationContext, parsed.data);
+    await tx.documentPaymentEvent.deleteMany({ where: { documentId: id.data } });
     await tx.documentLine.deleteMany({ where: { documentId: id.data } });
-    const document = await tx.document.update({ where: { id: id.data }, data: { ...customer, originalDocumentId: parsed.data.originalDocumentId, adjustmentReason: parsed.data.adjustmentReason, type: parsed.data.type, currency: parsed.data.currency, draftDate: new Date(`${parsed.data.draftDate}T00:00:00.000Z`), dueDate: parsed.data.dueDate ? new Date(`${parsed.data.dueDate}T00:00:00.000Z`) : null, supplyDate: new Date(`${parsed.data.supplyDate}T00:00:00.000Z`), taxPointDate: new Date(`${calculationContext.taxPointDate}T00:00:00.000Z`), transactionType: parsed.data.transactionType, priceMode: parsed.data.priceMode, notes: parsed.data.notes, ...calculation, lines: { create: prepared } }, include: { lines: true } });
-    await recordAuditEvent(tx, { workspaceId: input.workspaceId, actorUserId: input.actorUserId, action: "DOCUMENT_DRAFT_UPDATED", resourceType: AUDIT_RESOURCE_TYPES.DOCUMENT, resourceId: document.id, metadata: { documentType: parsed.data.type, draftReference: before.draftReference, total: document.grandTotal.toString(), currency: document.currency } });
+    const document = await tx.document.update({ where: { id: id.data }, data: { ...customer, originalDocumentId: parsed.data.originalDocumentId, adjustmentReason: parsed.data.adjustmentReason, type: parsed.data.type, receiptType: parsed.data.receiptType, fiscalizationStatus: fiscalizationStatusForDraft(parsed.data.type, parsed.data.receiptType), currency: parsed.data.currency, draftDate: new Date(`${parsed.data.draftDate}T00:00:00.000Z`), dueDate: parsed.data.dueDate ? new Date(`${parsed.data.dueDate}T00:00:00.000Z`) : null, supplyDate: parseGhanaDateTime(parsed.data.supplyDate), taxPointDate: calculationContext.taxPointDateTime, transactionType: parsed.data.transactionType, servicePeriodStart: parsed.data.servicePeriodStart ? parseGhanaDateTime(parsed.data.servicePeriodStart) : null, servicePeriodEnd: parsed.data.servicePeriodEnd ? parseGhanaDateTime(parsed.data.servicePeriodEnd) : null, priceMode: parsed.data.priceMode, notes: parsed.data.notes, ...calculation, paymentEvents: { create: parsed.data.paymentEvents.map((event, index) => ({ occurredAt: parseGhanaDateTime(event.occurredAt), amount: event.amount, method: event.method, reference: event.reference, isPartial: new Prisma.Decimal(event.amount).lt(totals.grandTotal), eventOrder: index + 1 })) }, lines: { create: prepared } }, include: { lines: true } });
+    const changedFields = [
+      ...(before.type !== document.type ? ["documentType"] : []),
+      ...(before.receiptType !== document.receiptType ? ["receiptType"] : []),
+      ...(before.customerTaxStatus !== document.customerTaxStatus ? ["customerTaxStatus"] : []),
+      ...(before.transactionType !== document.transactionType ? ["transactionType"] : []),
+      ...(before.priceMode !== document.priceMode ? ["priceMode"] : []),
+      ...(String(before.supplyDate ?? "") !== String(document.supplyDate ?? "") ? ["supplyDate"] : []),
+      ...(String(before.servicePeriodStart ?? "") !== String(document.servicePeriodStart ?? "") || String(before.servicePeriodEnd ?? "") !== String(document.servicePeriodEnd ?? "") ? ["servicePeriod"] : []),
+      ...(before.withholdingApplied !== document.withholdingApplied ? ["withholdingApplied"] : []),
+      ...(before.withholdingAgent !== document.withholdingAgent ? ["withholdingAgent"] : []),
+      ...(!before.withholdingAmount.eq(document.withholdingAmount) ? ["withholdingAmount"] : []),
+      ...(before.withholdingReference !== document.withholdingReference ? ["withholdingReference"] : []),
+      ...(before.withholdingEvidence !== document.withholdingEvidence ? ["withholdingEvidence"] : []),
+      "lines",
+      "paymentEvents",
+    ];
+    await recordAuditEvent(tx, { workspaceId: input.workspaceId, actorUserId: input.actorUserId, action: "DOCUMENT_DRAFT_UPDATED", resourceType: AUDIT_RESOURCE_TYPES.DOCUMENT, resourceId: document.id, metadata: { documentType: parsed.data.type, draftReference: before.draftReference, total: document.grandTotal.toString(), currency: document.currency, changedFields } });
     return document;
   }, businessDataTransactionOptions);
   return attachReusableCustomer(document, input, options);
@@ -416,5 +442,12 @@ export async function updateDraft(input: { actorUserId: string; workspaceId: str
 
 export async function archiveDraft(input: { actorUserId: string; workspaceId: string; documentId: unknown }) {
   const id = documentIdSchema.safeParse(input.documentId); if (!id.success) throw new BusinessDataValidationError({ documentId: ["Invalid draft."] });
-  return db.$transaction(async (tx) => { await lockBusinessResource(tx, `document:${id.data}`); const { document } = await requireDocumentAccessInTransaction(tx, input.actorUserId, input.workspaceId, id.data); const archived = await tx.document.update({ where: { id: id.data }, data: { archivedAt: new Date() } }); await recordAuditEvent(tx, { workspaceId: input.workspaceId, actorUserId: input.actorUserId, action: "DOCUMENT_DRAFT_ARCHIVED", resourceType: AUDIT_RESOURCE_TYPES.DOCUMENT, resourceId: id.data, metadata: { draftReference: document.draftReference } }); return archived; }, businessDataTransactionOptions);
+  return db.$transaction(async (tx) => {
+    await lockBusinessResource(tx, `document:${id.data}`);
+    const { document } = await requireDocumentAccessInTransaction(tx, input.actorUserId, input.workspaceId, id.data);
+    if (document.status !== "DRAFT") throw new BusinessDataConflictError("Issued documents cannot be archived or deleted. Use a credit note, debit note, or audited void where appropriate.");
+    const archived = await tx.document.update({ where: { id: id.data }, data: { archivedAt: new Date() } });
+    await recordAuditEvent(tx, { workspaceId: input.workspaceId, actorUserId: input.actorUserId, action: "DOCUMENT_DRAFT_ARCHIVED", resourceType: AUDIT_RESOURCE_TYPES.DOCUMENT, resourceId: id.data, metadata: { draftReference: document.draftReference } });
+    return archived;
+  }, businessDataTransactionOptions);
 }

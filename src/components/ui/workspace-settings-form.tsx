@@ -26,6 +26,7 @@ type WorkspaceValues = {
   vatRegistrationEffectiveDate: Date | string | null;
   vatDeregistrationEffectiveDate: Date | string | null;
   vatRegistered: boolean;
+  vatSalesReceiptAuthorization: "UNKNOWN" | "NOT_AUTHORIZED" | "AUTHORIZED";
 };
 
 const typeLabels = {
@@ -234,10 +235,12 @@ export function WorkspaceSettingsForm({
               <input className={inputClass} type="date" name="vatDeregistrationEffectiveDate" defaultValue={dateValue(workspace.vatDeregistrationEffectiveDate)} disabled={!canManage || vatStatus !== "DEREGISTERED"} />
               <FieldError errors={state.fieldErrors?.vatDeregistrationEffectiveDate} />
             </label>
+            <div className="rounded-lg border border-border p-4 text-sm sm:col-span-2"><p className="font-semibold text-text">VAT sales receipt authorization</p><p className="mt-1 text-muted">{workspace.vatSalesReceiptAuthorization.replaceAll("_", " ").toLowerCase()}. Commercial receipts remain available; CIV does not infer Commissioner-General authorization.</p></div>
           </div>
           <div className="mt-5 rounded-lg bg-surface-muted p-4 text-sm leading-6 text-muted">
             {businessActivity === "GOODS" ? "2026 guidance: the applicable goods-supplier VAT registration threshold is currently GH₵750,000. GRA determines final liability." : businessActivity === "SERVICES" ? "2026 guidance: service providers have no general VAT registration threshold. Confirm your position with GRA." : "2026 guidance: goods may use the current GH₵750,000 threshold, while service providers have no general threshold. Confirm your position with GRA."}
           </div>
+          <p className="mt-4 text-sm leading-6 text-muted">CIV helps prepare Ghana VAT-compliant document data. Official VAT tax documents require applicable GRA Certified Invoicing System processing.</p>
       </section>
 
       {state.message ? (

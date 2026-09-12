@@ -1,6 +1,7 @@
 import "server-only";
 
 import { issuedDocumentSnapshotSchema, type IssuedDocumentSnapshot } from "@/features/documents/snapshots";
+import { publicFiscalizationLabel } from "@/features/documents/compliance";
 import { db } from "@/lib/db";
 
 import { normalizeVerificationCode } from "./code";
@@ -17,6 +18,7 @@ export type PublicVerificationResult =
       issueDate: string;
       currency: string;
       grandTotal: string;
+      fiscalizationStatus: "GRA Certified" | "GRA Fiscalization Required" | "Not a GRA tax document" | "GRA fiscalization not recorded";
     };
 
 const documentTypeLabels = {
@@ -46,6 +48,12 @@ export function mapPublicVerificationResult(input: {
     issueDate: input.snapshot.document.issueDate,
     currency: input.snapshot.document.currency,
     grandTotal: input.snapshot.totals.grandTotal,
+    fiscalizationStatus: publicFiscalizationLabel({
+      status: input.snapshot.document.fiscalization?.status ?? "NOT_RECORDED",
+      fiscalDocumentId: input.snapshot.document.fiscalization?.fiscalDocumentId,
+      timestamp: input.snapshot.document.fiscalization?.timestamp,
+      providerReference: input.snapshot.document.fiscalization?.providerReference,
+    }),
   };
 }
 

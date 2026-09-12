@@ -182,7 +182,7 @@ test("ISSUE Phase 1 is atomic, immutable, authorized, and exactly once under con
     assert.equal(failed.documentNumber, null);
 
     const vat = await createDraft({ actorUserId: monthly.ownerId, workspaceId: monthly.id, data: draftData({ type: "VAT_INVOICE", customerId: customer.id, customerName: customer.name, lines: [{ catalogItemId: null, customRateId: null, description: "VAT base", quantity: "1", unitPrice: "100.00" }] }) });
-    const vatIssued = await issueDocument({ actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: vat.id });
+    const vatIssued = await issueDocument({ actorUserId: monthly.ownerId, workspaceId: monthly.id, documentId: vat.id, acknowledgeGraRequirement: true });
     assert.match(vatIssued.documentNumber, /^VAT-\d{6}$/);
     const vatSnapshot = issuedDocumentSnapshotSchema.parse((await db.documentSnapshot.findUniqueOrThrow({ where: { documentId: vat.id } })).payload);
     assert.equal(vatSnapshot.tax?.components.find(({ code }) => code === "NHIL")?.amount, "2.50");

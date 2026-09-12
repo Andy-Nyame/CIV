@@ -5,7 +5,6 @@ import { isSuperAdminEmail, isSuperAdminUserId } from "@/features/platform-admin
 import { db } from "@/lib/db";
 import { hasCapability, type Capability } from "@/features/authorization/capabilities";
 import { WorkspaceAuthorizationError } from "@/features/authorization/errors";
-import type { MembershipRole } from "@/generated/prisma/enums";
 
 import { evaluateWorkspaceDocumentReadiness, WorkspaceDocumentReadinessError } from "./document-readiness";
 
@@ -21,6 +20,7 @@ export const workspaceReadinessSelect = {
   vatRegistrationStatus: true,
   vatRegistrationEffectiveDate: true,
   vatDeregistrationEffectiveDate: true,
+  vatSalesReceiptAuthorization: true,
 } as const;
 
 export async function getWorkspaceDocumentReadiness(input: {
@@ -44,39 +44,21 @@ export async function authorizeWorkspaceDocumentReadinessInTransaction(input: {
   taxPointDate?: Date | string;
   capability: Capability;
 }, transaction: Prisma.TransactionClient) {
-  const rows = await transaction.$queryRaw<Array<{
-    role: MembershipRole;
-    email: string | null;
-    name: string;
-    type: "INDIVIDUAL" | "BUSINESS" | "ORGANIZATION";
-    environment: "NORMAL" | "TEST";
-    legalName: string | null;
-    address: string | null;
-    taxpayerIdType: "GHANA_CARD_PIN" | "GRA_TIN" | null;
-    taxpayerId: string | null;
-    vatRegistered: boolean;
-    vatRegistrationStatus: "NOT_REGISTERED" | "PENDING" | "REGISTERED" | "DEREGISTERED";
-    vatRegistrationEffectiveDate: Date | null;
-    vatDeregistrationEffectiveDate: Date | null;
-  }>>`
-    SELECT m."role"::text AS role, u."email", w."name",
-      w."type"::text AS type, w."environment"::text AS environment,
-      w."legalName", w."address", w."taxpayerIdType"::text AS "taxpayerIdType",
-      w."taxpayerId", w."vatRegistered",
-      w."vatRegistrationStatus"::text AS "vatRegistrationStatus",
-      w."vatRegistrationEffectiveDate", w."vatDeregistrationEffectiveDate"
-    FROM "Membership" m
-    JOIN "User" u ON u."id" = m."userId"
-    JOIN "Workspace" w ON w."id" = m."workspaceId"
-    WHERE m."userId" = ${input.actorUserId}::uuid
-      AND m."workspaceId" = ${input.workspaceId}::uuid
-      AND m."status" = 'ACTIVE'::"MembershipStatus"
-      AND w."archivedAt" IS NULL
-    LIMIT 1
-  `;
-  const row = rows[0];
-  if (!row || !hasCapability({ role: row.role }, input.capability)) throw new WorkspaceAuthorizationError();
-  const { role, email, ...workspace } = row;
+  const membership = await transaction.membership.findFirst({
+    where: {
+      userId: input.actorUserId,
+      workspaceId: input.workspaceId,
+      status: "ACTIVE",
+      workspace: { archivedAt: null },
+    },
+    select: {
+      role: true,
+      user: { select: { email: true } },
+      workspace: { select: workspaceReadinessSelect },
+    },
+  });
+  if (!membership || !hasCapability({ role: membership.role }, input.capability)) throw new WorkspaceAuthorizationError();
+  const { role, user: { email }, workspace } = membership;
   const isSuperAdmin = isSuperAdminEmail(email);
   if (workspace.environment === "TEST" && !isSuperAdmin) throw new WorkspaceAuthorizationError();
   const readiness = evaluateWorkspaceDocumentReadiness({

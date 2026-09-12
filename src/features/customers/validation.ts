@@ -11,9 +11,13 @@ export const customerInputSchema = z.object({
   taxpayerIdType: z.preprocess((value) => value === "" || value === null ? null : value, z.enum(["GHANA_CARD_PIN", "GRA_TIN"]).nullable()).optional(),
   taxpayerId: optionalText(100).optional(),
   vatRegistrationStatus: z.preprocess((value) => value === "" || value === null ? null : value, z.enum(["NOT_REGISTERED", "PENDING", "REGISTERED", "DEREGISTERED"]).nullable()).optional(),
+  taxStatus: z.enum(["ORDINARY_CONSUMER", "TAXABLE_PERSON"]).default("ORDINARY_CONSUMER"),
   notes: optionalText(4_000),
 }).superRefine((value, context) => {
   if (value.taxpayerId && !value.taxpayerIdType) context.addIssue({ code: "custom", path: ["taxpayerIdType"], message: "Choose the customer taxpayer ID type." });
+  if (value.taxStatus === "TAXABLE_PERSON" && (!value.address || !value.taxpayerId || !value.taxpayerIdType)) {
+    context.addIssue({ code: "custom", path: ["taxStatus"], message: "A taxable/business customer needs an address and taxpayer identity." });
+  }
 });
 
 export const customerIdSchema = z.string().uuid();

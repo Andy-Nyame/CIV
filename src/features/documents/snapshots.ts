@@ -24,7 +24,7 @@ export const documentTaxSnapshotSchema = z.object({
 }).strict();
 
 export const issuedDocumentSnapshotSchema = z.object({
-  snapshotVersion: z.union([z.literal(1), z.literal(2)]),
+  snapshotVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   document: z.object({
     id: z.string().uuid(), draftReference: z.string().min(8).max(40),
     documentNumber: z.string().min(5).max(100), type: z.enum(["INVOICE", "RECEIPT", "VAT_INVOICE", "CREDIT_NOTE", "DEBIT_NOTE"]),
@@ -33,7 +33,11 @@ export const issuedDocumentSnapshotSchema = z.object({
     isTestDocument: z.boolean().optional().default(false),
     supplyDate: z.string().date().nullable().optional().default(null),
     taxPointDate: z.string().date().nullable().optional().default(null),
+    supplyDateTime: z.string().datetime().nullable().optional().default(null),
+    taxPointDateTime: z.string().datetime().nullable().optional().default(null),
     transactionType: z.enum(["SALE", "SERVICE", "HIRE_OR_LEASE", "EXCHANGE", "OTHER"]).optional().default("SALE"),
+    receiptType: z.enum(["COMMERCIAL", "VAT_SALES_RECEIPT"]).optional().default("COMMERCIAL"),
+    servicePeriod: z.object({ start: z.string().datetime(), end: z.string().datetime() }).strict().nullable().optional().default(null),
     priceMode: z.enum(["TAX_EXCLUSIVE", "TAX_INCLUSIVE"]).optional().default("TAX_EXCLUSIVE"),
     adjustment: z.object({
       originalDocumentId: z.string().uuid(),
@@ -41,6 +45,20 @@ export const issuedDocumentSnapshotSchema = z.object({
       originalIssueDate: z.string().date(),
       reason: z.string().min(1).max(1_000),
       direction: z.enum(["REDUCE", "INCREASE"]),
+      originalSupplyValue: moneySchema.optional().default("0.00"),
+      adjustedSupplyValue: moneySchema.optional().default("0.00"),
+      difference: moneySchema.optional().default("0.00"),
+      taxAttributable: moneySchema.optional().default("0.00"),
+    }).strict().nullable().optional().default(null),
+    fiscalization: z.object({
+      status: z.enum(["NOT_RECORDED", "NOT_REQUIRED", "REQUIRES_GRA", "PENDING", "CERTIFIED", "FAILED"]),
+      fiscalDocumentId: nullableText,
+      timestamp: z.string().datetime().nullable(),
+      signature: nullableText,
+      verificationEngineId: nullableText,
+      verificationPayload: nullableText,
+      securityData: nullableText,
+      providerReference: nullableText,
     }).strict().nullable().optional().default(null),
   }).strict(),
   issuer: z.object({
@@ -63,6 +81,7 @@ export const issuedDocumentSnapshotSchema = z.object({
     taxpayerIdType: z.enum(["GHANA_CARD_PIN", "GRA_TIN"]).nullable().optional().default(null),
     taxpayerId: nullableText.optional().default(null),
     vatRegistrationStatus: z.enum(["NOT_REGISTERED", "PENDING", "REGISTERED", "DEREGISTERED"]).nullable().optional().default(null),
+    taxStatus: z.enum(["ORDINARY_CONSUMER", "TAXABLE_PERSON"]).optional().default("ORDINARY_CONSUMER"),
   }).strict().nullable(),
   lines: z.array(z.object({
     order: z.number().int().positive(), description: z.string().min(1).max(2_000), quantity: z.string().regex(/^\d+(\.\d{1,6})?$/),
@@ -88,9 +107,10 @@ export const issuedDocumentSnapshotSchema = z.object({
     exemptValue: moneySchema.optional().default("0.00"),
     relievedValue: moneySchema.optional().default("0.00"),
     totalTaxInclusiveValue: moneySchema.optional().default("0.00"),
-    withholding: z.object({ amount: moneySchema, reference: z.string().min(1).max(500), date: z.string().date().nullable() }).strict().nullable().optional().default(null),
+    withholding: z.object({ amount: moneySchema, reference: z.string().min(1).max(500), date: z.string().date().nullable(), withholdingAgent: z.boolean().optional().default(false), evidence: nullableText.optional().default(null) }).strict().nullable().optional().default(null),
     netPayable: moneySchema.optional(),
   }).strict(),
+  payments: z.array(z.object({ occurredAt: z.string().datetime(), amount: moneySchema, method: nullableText, reference: nullableText, isPartial: z.boolean() }).strict()).max(20).optional().default([]),
   issuedBy: z.object({ userId: z.string().uuid(), displayName: z.string().min(1).max(320) }).strict(),
   presentation: z.object({ template: z.null(), signature: z.null() }).strict(),
   verification: z.object({ code: z.string().min(1).max(200) }).strict().nullable().optional().default(null),
@@ -103,7 +123,8 @@ export function buildCustomerSnapshot(document: {
   customerPhone: string | null; customerAddress: string | null; customerBusinessTin: string | null;
   customerTaxpayerIdType?: "GHANA_CARD_PIN" | "GRA_TIN" | null; customerTaxpayerId?: string | null;
   customerVatRegistrationStatus?: "NOT_REGISTERED" | "PENDING" | "REGISTERED" | "DEREGISTERED" | null;
-  customer: { id: string; name: string; email: string | null; phone: string | null; address: string | null; businessTin: string | null; taxpayerIdType?: "GHANA_CARD_PIN" | "GRA_TIN" | null; taxpayerId?: string | null; vatRegistrationStatus?: "NOT_REGISTERED" | "PENDING" | "REGISTERED" | "DEREGISTERED" | null } | null;
+  customerTaxStatus?: "ORDINARY_CONSUMER" | "TAXABLE_PERSON";
+  customer: { id: string; name: string; email: string | null; phone: string | null; address: string | null; businessTin: string | null; taxpayerIdType?: "GHANA_CARD_PIN" | "GRA_TIN" | null; taxpayerId?: string | null; vatRegistrationStatus?: "NOT_REGISTERED" | "PENDING" | "REGISTERED" | "DEREGISTERED" | null; taxStatus?: "ORDINARY_CONSUMER" | "TAXABLE_PERSON" } | null;
 }) {
   const name = document.customerName?.trim() || document.customer?.name;
   return name ? {
@@ -116,6 +137,7 @@ export function buildCustomerSnapshot(document: {
     taxpayerIdType: document.customerTaxpayerIdType ?? document.customer?.taxpayerIdType ?? null,
     taxpayerId: document.customerTaxpayerId ?? document.customer?.taxpayerId ?? document.customerBusinessTin ?? document.customer?.businessTin ?? null,
     vatRegistrationStatus: document.customerVatRegistrationStatus ?? document.customer?.vatRegistrationStatus ?? null,
+    taxStatus: document.customerTaxStatus ?? document.customer?.taxStatus ?? "ORDINARY_CONSUMER",
   } : null;
 }
 
@@ -205,16 +227,25 @@ export function buildIssuedDocumentSnapshot(input: {
     isTestDocument: boolean;
     draftDate: Date; dueDate: Date | null; supplyDate?: Date | null; taxPointDate?: Date | null;
     transactionType?: "SALE" | "SERVICE" | "HIRE_OR_LEASE" | "EXCHANGE" | "OTHER";
+    receiptType?: "COMMERCIAL" | "VAT_SALES_RECEIPT";
+    servicePeriodStart?: Date | null; servicePeriodEnd?: Date | null;
     priceMode?: "TAX_EXCLUSIVE" | "TAX_INCLUSIVE";
     originalDocumentId?: string | null; adjustmentReason?: string | null;
-    originalDocument?: { documentNumber: string | null; issueDate: Date | null } | null;
+    originalDocument?: { documentNumber: string | null; issueDate: Date | null; snapshot?: { payload: Prisma.JsonValue } | null } | null;
     notes: string | null; taxCalculation: Prisma.JsonValue | null;
     subtotal: Prisma.Decimal; discountTotal: Prisma.Decimal; rateTotal: Prisma.Decimal; taxableValue: Prisma.Decimal; taxTotal: Prisma.Decimal; grandTotal: Prisma.Decimal;
     standardRatedValue?: Prisma.Decimal; zeroRatedValue?: Prisma.Decimal; exemptValue?: Prisma.Decimal; relievedValue?: Prisma.Decimal;
-    withholdingApplied?: boolean; withholdingAmount?: Prisma.Decimal; withholdingReference?: string | null; withholdingDate?: Date | null; netPayable?: Prisma.Decimal;
+    withholdingApplied?: boolean; withholdingAgent?: boolean; withholdingAmount?: Prisma.Decimal; withholdingReference?: string | null; withholdingEvidence?: string | null; withholdingDate?: Date | null; netPayable?: Prisma.Decimal;
+    fiscalizationStatus?: "NOT_RECORDED" | "NOT_REQUIRED" | "REQUIRES_GRA" | "PENDING" | "CERTIFIED" | "FAILED";
+    graFiscalDocumentId?: string | null; graTimestamp?: Date | null; graSignature?: string | null; graVerificationEngineId?: string | null;
+    graVerificationPayload?: string | null; graSecurityData?: string | null; graProviderReference?: string | null;
+    paymentEvents?: Array<{ occurredAt: Date; amount: Prisma.Decimal; method: string | null; reference: string | null; isPartial: boolean }>;
     workspace: Parameters<typeof buildIssuerSnapshot>[0];
     customerId: string | null; customerName: string | null; customerEmail: string | null;
     customerPhone: string | null; customerAddress: string | null; customerBusinessTin: string | null;
+    customerTaxpayerIdType?: "GHANA_CARD_PIN" | "GRA_TIN" | null; customerTaxpayerId?: string | null;
+    customerVatRegistrationStatus?: "NOT_REGISTERED" | "PENDING" | "REGISTERED" | "DEREGISTERED" | null;
+    customerTaxStatus?: "ORDINARY_CONSUMER" | "TAXABLE_PERSON";
     customer: Parameters<typeof buildCustomerSnapshot>[0]["customer"];
     lines: Parameters<typeof buildLineSnapshots>[0];
   };
@@ -223,8 +254,21 @@ export function buildIssuedDocumentSnapshot(input: {
   issuedAt: Date;
   actor: { id: string; name: string | null; email: string | null };
 }) {
+  const originalSnapshot = input.document.originalDocument?.snapshot
+    ? issuedDocumentSnapshotSchema.safeParse(input.document.originalDocument.snapshot.payload)
+    : null;
+  const originalSupplyValue = originalSnapshot?.success ? originalSnapshot.data.totals.subtotal : "0.00";
+  const originalDocumentNumber = originalSnapshot?.success
+    ? originalSnapshot.data.document.documentNumber
+    : input.document.originalDocument?.documentNumber;
+  const originalIssueDate = originalSnapshot?.success
+    ? originalSnapshot.data.document.issueDate
+    : input.document.originalDocument?.issueDate?.toISOString().slice(0, 10);
+  const difference = input.document.subtotal.toFixed(2);
+  const originalValue = new Prisma.Decimal(originalSupplyValue);
+  const adjustedSupplyValue = (input.document.type === "CREDIT_NOTE" ? originalValue.sub(difference) : originalValue.add(difference)).toFixed(2);
   const payload = {
-    snapshotVersion: 2,
+    snapshotVersion: 3,
     document: {
       id: input.document.id,
       draftReference: input.document.draftReference,
@@ -239,15 +283,33 @@ export function buildIssuedDocumentSnapshot(input: {
       isTestDocument: input.document.isTestDocument,
       supplyDate: input.document.supplyDate?.toISOString().slice(0, 10) ?? null,
       taxPointDate: input.document.taxPointDate?.toISOString().slice(0, 10) ?? null,
+      supplyDateTime: input.document.supplyDate?.toISOString() ?? null,
+      taxPointDateTime: input.document.taxPointDate?.toISOString() ?? null,
       transactionType: input.document.transactionType ?? "SALE",
+      receiptType: input.document.receiptType ?? "COMMERCIAL",
+      servicePeriod: input.document.servicePeriodStart && input.document.servicePeriodEnd ? { start: input.document.servicePeriodStart.toISOString(), end: input.document.servicePeriodEnd.toISOString() } : null,
       priceMode: input.document.priceMode ?? "TAX_EXCLUSIVE",
-      adjustment: input.document.originalDocumentId && input.document.originalDocument?.documentNumber && input.document.originalDocument.issueDate && input.document.adjustmentReason ? {
+      adjustment: input.document.originalDocumentId && originalDocumentNumber && originalIssueDate && input.document.adjustmentReason ? {
         originalDocumentId: input.document.originalDocumentId,
-        originalDocumentNumber: input.document.originalDocument.documentNumber,
-        originalIssueDate: input.document.originalDocument.issueDate.toISOString().slice(0, 10),
+        originalDocumentNumber,
+        originalIssueDate,
         reason: input.document.adjustmentReason,
         direction: input.document.type === "CREDIT_NOTE" ? "REDUCE" : "INCREASE",
+        originalSupplyValue,
+        adjustedSupplyValue,
+        difference,
+        taxAttributable: input.document.taxTotal.toFixed(2),
       } : null,
+      fiscalization: {
+        status: input.document.fiscalizationStatus ?? "NOT_RECORDED",
+        fiscalDocumentId: input.document.graFiscalDocumentId ?? null,
+        timestamp: input.document.graTimestamp?.toISOString() ?? null,
+        signature: input.document.graSignature ?? null,
+        verificationEngineId: input.document.graVerificationEngineId ?? null,
+        verificationPayload: input.document.graVerificationPayload ?? null,
+        securityData: input.document.graSecurityData ?? null,
+        providerReference: input.document.graProviderReference ?? null,
+      },
     },
     issuer: buildIssuerSnapshot(input.document.workspace),
     customer: buildCustomerSnapshot(input.document),
@@ -270,9 +332,12 @@ export function buildIssuedDocumentSnapshot(input: {
         amount: input.document.withholdingAmount.toFixed(2),
         reference: input.document.withholdingReference,
         date: input.document.withholdingDate?.toISOString().slice(0, 10) ?? null,
+        withholdingAgent: input.document.withholdingAgent ?? false,
+        evidence: input.document.withholdingEvidence ?? null,
       } : null,
       netPayable: (input.document.netPayable ?? input.document.grandTotal).toFixed(2),
     },
+    payments: (input.document.paymentEvents ?? []).map((event) => ({ occurredAt: event.occurredAt.toISOString(), amount: event.amount.toFixed(2), method: event.method, reference: event.reference, isPartial: event.isPartial })),
     issuedBy: { userId: input.actor.id, displayName: input.actor.name?.trim() || input.actor.email || "Workspace member" },
     presentation: { template: null, signature: null },
     verification: { code: input.verificationCode },

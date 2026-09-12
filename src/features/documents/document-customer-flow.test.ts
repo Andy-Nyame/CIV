@@ -161,7 +161,7 @@ test("customer details are document-first, reusable, isolated, and snapshotted",
 
     const receiptIssue = await issueDocument({ actorUserId: primary.ownerId, workspaceId: primary.id, documentId: receipt.id });
     await issueDocument({ actorUserId: primary.ownerId, workspaceId: primary.id, documentId: invoice.id });
-    await issueDocument({ actorUserId: primary.ownerId, workspaceId: primary.id, documentId: vatInvoice.id });
+    await issueDocument({ actorUserId: primary.ownerId, workspaceId: primary.id, documentId: vatInvoice.id, acknowledgeGraRequirement: true });
     await issueDocument({ actorUserId: primary.ownerId, workspaceId: primary.id, documentId: unsaved.id });
 
     const receiptSnapshot = issuedDocumentSnapshotSchema.parse((await db.documentSnapshot.findUniqueOrThrow({ where: { documentId: receipt.id } })).payload);

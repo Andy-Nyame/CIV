@@ -13,6 +13,7 @@ export type WorkspaceReadinessRecord = {
   vatRegistrationStatus?: "NOT_REGISTERED" | "PENDING" | "REGISTERED" | "DEREGISTERED";
   vatRegistrationEffectiveDate?: Date | string | null;
   vatDeregistrationEffectiveDate?: Date | string | null;
+  vatSalesReceiptAuthorization?: "UNKNOWN" | "NOT_AUTHORIZED" | "AUTHORIZED";
 };
 
 export type WorkspaceReadinessCode =
