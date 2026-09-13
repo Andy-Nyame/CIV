@@ -4,7 +4,7 @@ import { CAPABILITIES, getDocumentAccessFilter } from "@/features/authorization/
 import { AUDIT_RESOURCE_TYPES } from "@/features/audit/registry";
 import { recordAuditEvent } from "@/features/audit/service";
 import { BusinessDataConflictError, BusinessDataValidationError } from "@/features/business-data/errors";
-import { businessDataTransactionOptions } from "@/features/business-data/locking";
+import { businessDataTransactionOptions, lockBusinessResource } from "@/features/business-data/locking";
 import { consumeDocumentCapacityInTransaction } from "@/features/commercial/capacity";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
@@ -19,9 +19,10 @@ import { generateVerificationCode } from "@/features/documents/verification/code
 import { calculateDocumentLine, calculateDraftTotals, calculateNetPayable } from "./calculations";
 import { allocateOfficialDocumentNumber } from "./numbering";
 import { validateIssueReadinessInTransaction, workspaceIssuesForIssuance, type IssueReadinessError } from "./readiness";
-import { buildIssuedDocumentSnapshot, issuedDocumentSnapshotSchema } from "./snapshots";
+import { buildIssuedDocumentSnapshot, issuedDocumentSnapshotSchema, type IssuedDocumentSnapshot } from "./snapshots";
 import { documentIdSchema } from "./validation";
 import { hasAuthoritativeGraCertification, isStatutoryTaxDocument } from "./compliance";
+import { validateAdjustmentIntegrity } from "./adjustment-integrity";
 
 export class DocumentIssueReadinessError extends Error {
   constructor(readonly errors: IssueReadinessError[]) {
@@ -162,7 +163,11 @@ async function issueDocumentOnce(input: {
     const supplierVatEligible = isVatEligibleAtTaxPoint(authorization.workspace, taxPointDate);
     let taxVersion: TrustedTaxVersion | null = null;
     let statutoryComponents: TrustedTaxComponent[] = [];
+    let frozenOriginalSnapshot: IssuedDocumentSnapshot | null = null;
     if (documentType === "CREDIT_NOTE" || documentType === "DEBIT_NOTE") {
+      if (draft.originalDocumentId) {
+        await lockBusinessResource(transaction, `document-adjustments:${draft.originalDocumentId}`);
+      }
       const original = draft.originalDocumentId ? await transaction.document.findFirst({
         where: { id: draft.originalDocumentId, workspaceId: input.workspaceId, status: "ISSUED", archivedAt: null, type: { notIn: ["CREDIT_NOTE", "DEBIT_NOTE"] } },
         select: { taxVersionId: true, currency: true, snapshot: { select: { payload: true } } },
@@ -174,6 +179,7 @@ async function issueDocumentOnce(input: {
       if (original.currency !== draft.currency) {
         throw new DocumentIssueReadinessError([{ code: "CURRENCY_MISMATCH", message: "The adjustment currency must match the original document.", field: "currency" }]);
       }
+      frozenOriginalSnapshot = originalSnapshot.data;
       statutoryComponents = originalSnapshot.data.tax?.components.map((component) => ({ code: component.code, name: component.name, rate: component.rate, calculationOrder: component.order, baseStrategy: component.baseStrategy, contributesToTaxableValue: false, contributesToTotal: true })) ?? [];
       if (originalSnapshot.data.tax) taxVersion = { id: originalSnapshot.data.tax.version.id, version: originalSnapshot.data.tax.version.code, effectiveFrom: new Date(`${originalSnapshot.data.tax.version.effectiveFrom}T00:00:00.000Z`), effectiveTo: originalSnapshot.data.tax.version.effectiveTo ? new Date(`${originalSnapshot.data.tax.version.effectiveTo}T00:00:00.000Z`) : null, profile: originalSnapshot.data.tax.profile, components: statutoryComponents };
     } else if (supplierVatEligible && statutoryTaxDocument) {
@@ -314,6 +320,36 @@ async function issueDocumentOnce(input: {
       issuedAt,
       actor,
     });
+    if (frozenOriginalSnapshot) {
+      const priorIssuedCredits = documentType === "CREDIT_NOTE"
+        ? await transaction.document.findMany({
+            where: {
+              workspaceId: input.workspaceId,
+              originalDocumentId: frozenOriginalSnapshot.document.id,
+              type: "CREDIT_NOTE",
+              status: "ISSUED",
+              archivedAt: null,
+            },
+            select: { snapshot: { select: { payload: true } } },
+          })
+        : [];
+      const parsedPriorCredits: IssuedDocumentSnapshot[] = [];
+      for (const credit of priorIssuedCredits) {
+        const parsed = credit.snapshot
+          ? issuedDocumentSnapshotSchema.safeParse(credit.snapshot.payload)
+          : null;
+        if (!parsed?.success) {
+          throw new DocumentIssueConflictError("An existing credit note has no valid immutable snapshot.");
+        }
+        parsedPriorCredits.push(parsed.data);
+      }
+      const adjustmentIssues = validateAdjustmentIntegrity({
+        original: frozenOriginalSnapshot,
+        adjustment: snapshot,
+        priorIssuedCredits: parsedPriorCredits,
+      });
+      if (adjustmentIssues.length) throw new DocumentIssueReadinessError(adjustmentIssues);
+    }
     const persistedSnapshot = await transaction.documentSnapshot.create({
       data: {
         documentId,

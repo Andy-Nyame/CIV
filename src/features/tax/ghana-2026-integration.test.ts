@@ -235,7 +235,7 @@ test("Ghana 2026 mixed supplies, adjustments, withholding, and snapshots persist
       withholdingApplied: false,
       withholdingAmount: "0",
       withholdingReference: "",
-      lines: [{ catalogItemId: null, customRateId: null, description: "Original standard supply adjustment", quantity: "1", unitPrice: "100.00", unitOfMeasure: "Service", discountAmount: "0.00", taxTreatment: "STANDARD_RATED" }],
+      lines: [{ catalogItemId: null, customRateId: customRate.id, description: "Original standard supply adjustment", quantity: "1", unitPrice: "100.00", unitOfMeasure: "Service", discountAmount: "0.00", taxTreatment: "STANDARD_RATED" }],
     } as const;
     const credit = await createDraft({ actorUserId: user.id, workspaceId: workspace.id, data: { ...adjustmentBase, type: "CREDIT_NOTE" } });
     const debit = await createDraft({ actorUserId: user.id, workspaceId: workspace.id, data: { ...adjustmentBase, type: "DEBIT_NOTE" } });
